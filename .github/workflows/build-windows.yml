@@ -1,11 +1,19 @@
-name: 🪟 Build Windows (Manual)
+name: 🪟 Release Windows
 
 on:
-  workflow_dispatch: # Only runs when YOU click the button in GitHub Actions
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Version Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    name: Compile Windows Executable
+  release-windows:
+    name: Build Windows & Upload to Release
     runs-on: windows-latest
     steps:
       - name: Checkout Code
@@ -17,8 +25,11 @@ jobs:
       - name: Build Release
         run: cargo build --release --workspace
 
-      - name: Save Windows Executable
-        uses: actions/upload-artifact@v4
+      - name: Prepare Executable
+        run: Copy-Item -Path "target\release\secret_png_gui.exe" -Destination "SecretPNG_Windows_x64.exe" -Force
+
+      - name: Upload Windows Asset to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: SecretPNG_Windows_x64
-          path: target/release/secret_png_gui.exe
+          tag_name: "${{ github.event.inputs.tag_name }}"
+          files: SecretPNG_Windows_x64.exe

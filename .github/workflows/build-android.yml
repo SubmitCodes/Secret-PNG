@@ -1,11 +1,19 @@
-name: 📱 Build Android APK (Manual)
+name: 📱 Release Android
 
 on:
-  workflow_dispatch: # Only runs when YOU click the button in GitHub Actions
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Version Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
 
 jobs:
-  build-android:
-    name: Compile Android APK
+  release-android:
+    name: Build Android & Upload to Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -25,9 +33,10 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../SecretPNG_Android.apk
 
-      - name: Save Android APK
-        uses: actions/upload-artifact@v4
+      - name: Upload Android Asset to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: SecretPNG_Android_APK
-          path: android_app/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: "${{ github.event.inputs.tag_name }}"
+          files: SecretPNG_Android.apk

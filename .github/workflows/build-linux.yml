@@ -1,11 +1,19 @@
-name: 🐧 Build Linux (Manual)
+name: 🐧 Release Linux
 
 on:
-  workflow_dispatch: # Only runs when YOU click the button in GitHub Actions
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Version Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
 
 jobs:
-  build-linux:
-    name: Compile Linux Binary
+  release-linux:
+    name: Build Linux & Upload to Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -19,11 +27,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq pkg-config libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
 
-      - name: Build Release
-        run: cargo build --release --workspace
+      - name: Build Linux Release
+        run: |
+          cargo build --release --workspace
+          cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
+          chmod +x ./SecretPNG_Linux_x86_64
 
-      - name: Save Linux Binary
-        uses: actions/upload-artifact@v4
+      - name: Upload Linux Asset to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: SecretPNG_Linux_x86_64
-          path: target/release/secret_png_gui
+          tag_name: "${{ github.event.inputs.tag_name }}"
+          files: SecretPNG_Linux_x86_64
