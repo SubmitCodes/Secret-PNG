@@ -116,8 +116,8 @@ impl StreamDecryptor {
         }
 
         let chunk_len = BigEndian::read_u32(&len_buf) as usize;
-        // Limit max chunk length for safety (1MB chunk + 16-byte tag + reasonable headroom)
-        if chunk_len > (DEFAULT_CHUNK_SIZE * 2) {
+        // Limit max chunk length for safety (up to 2MB headroom)
+        if chunk_len > (2 * 1024 * 1024) {
             return Err(SecretPngError::CorruptedMetadata("Corrupted encrypted chunk length".into()));
         }
 

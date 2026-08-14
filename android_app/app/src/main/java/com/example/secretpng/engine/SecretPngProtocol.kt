@@ -38,6 +38,7 @@ data class Trailer(
     val version: Int,
     val flags: Int,
     val hostImageSize: Long,
+    val payloadOffset: Long,
     val payloadLength: Long,
     val metadataOffset: Long,
     val metadataLength: Int,
@@ -74,11 +75,12 @@ data class Trailer(
             buf.position(16)
             val version = buf.short.toInt() and 0xFFFF
             val flags = buf.short.toInt() and 0xFFFF
-            val hostSize = buf.long
+            val payloadOffset = buf.long
             val payloadLen = buf.long
             val metaOffset = buf.long
             val metaLen = buf.int
             val metaCrc = buf.int.toLong() and 0xFFFFFFFFL
+            val hostSize = buf.int.toLong() and 0xFFFFFFFFL
             buf.position(56)
             val storedTrailerCrc = buf.int.toLong() and 0xFFFFFFFFL
 
@@ -90,6 +92,7 @@ data class Trailer(
                 version = version,
                 flags = flags,
                 hostImageSize = hostSize,
+                payloadOffset = payloadOffset,
                 payloadLength = payloadLen,
                 metadataOffset = metaOffset,
                 metadataLength = metaLen,
@@ -105,12 +108,12 @@ data class Trailer(
             buf.position(16)
             buf.putShort(trailer.version.toShort())
             buf.putShort(trailer.flags.toShort())
-            buf.putLong(trailer.hostImageSize)
+            buf.putLong(trailer.payloadOffset)
             buf.putLong(trailer.payloadLength)
             buf.putLong(trailer.metadataOffset)
             buf.putInt(trailer.metadataLength)
             buf.putInt(trailer.metadataCrc32.toInt())
-            buf.putInt(0) // padding
+            buf.putInt((trailer.hostImageSize and 0xFFFFFFFFL).toInt())
 
             val crc = CRC32()
             crc.update(bytes, 0, 56)
@@ -298,6 +301,7 @@ object SecretPngEngine {
             version = 1,
             flags = 0,
             hostImageSize = hostWritten,
+            payloadOffset = hostWritten,
             payloadLength = payloadWritten,
             metadataOffset = metadataOffset,
             metadataLength = metaBytes.size,
@@ -352,10 +356,37 @@ object SecretPngEngine {
 
             RandomAccessFile(tempCarrier, "r").use { raf ->
                 val length = raf.length()
-                raf.seek(length - Trailer.TRAILER_SIZE)
+                if (length < Trailer.TRAILER_SIZE) {
+                    throw IllegalStateException("File too small to contain carrier metadata")
+                }
+
+                // Check if file ends with PNG IEND chunk
+                var endsWithIend = false
+                if (length >= 88) {
+                    raf.seek(length - 12)
+                    val iendBytes = ByteArray(12)
+                    raf.readFully(iendBytes)
+                    if (iendBytes[4] == 0x49.toByte() && iendBytes[5] == 0x45.toByte() && iendBytes[6] == 0x4E.toByte() && iendBytes[7] == 0x44.toByte()) {
+                        endsWithIend = true
+                    }
+                }
+
                 val trailerBytes = ByteArray(Trailer.TRAILER_SIZE)
-                raf.readFully(trailerBytes)
-                val trailer = Trailer.fromBytes(trailerBytes)
+                val trailer = try {
+                    if (endsWithIend) {
+                        raf.seek(length - 80)
+                        raf.readFully(trailerBytes)
+                        Trailer.fromBytes(trailerBytes)
+                    } else {
+                        raf.seek(length - Trailer.TRAILER_SIZE)
+                        raf.readFully(trailerBytes)
+                        Trailer.fromBytes(trailerBytes)
+                    }
+                } catch (e: Exception) {
+                    raf.seek(length - Trailer.TRAILER_SIZE)
+                    raf.readFully(trailerBytes)
+                    Trailer.fromBytes(trailerBytes)
+                }
 
                 raf.seek(trailer.metadataOffset)
                 val metaBytes = ByteArray(trailer.metadataLength)
@@ -368,39 +399,85 @@ object SecretPngEngine {
                 val expectedHash = metaJson.optString("blake3_hex", metaJson.optString("sha256_hex", ""))
                 val expectedCrc = metaJson.optLong("crc32", 0L)
 
-                raf.seek(trailer.hostImageSize)
-                var remaining = trailer.payloadLength
-                val buffer = ByteArray(64 * 1024)
-                val crc32 = CRC32()
-                val sha256 = MessageDigest.getInstance("SHA-256")
+                val isPngChunkMode = (trailer.flags and 0x0002) != 0
+                raf.seek(if (isPngChunkMode) trailer.payloadOffset else trailer.hostImageSize)
+
                 var processed = 0L
                 val startTime = System.currentTimeMillis()
+                val crc32 = CRC32()
+                val sha256 = MessageDigest.getInstance("SHA-256")
 
-                while (remaining > 0) {
-                    val toRead = remaining.coerceAtMost(buffer.size.toLong()).toInt()
-                    val n = raf.read(buffer, 0, toRead)
-                    if (n <= 0) break
+                if (isPngChunkMode) {
+                    var extractedBytes = 0L
+                    val headerBuf = ByteArray(8)
+                    val crcBuf = ByteArray(4)
+                    val chunkBuf = ByteArray(128 * 1024)
 
-                    bufOut.write(buffer, 0, n)
-                    crc32.update(buffer, 0, n)
-                    sha256.update(buffer, 0, n)
+                    while (extractedBytes < trailer.payloadLength) {
+                        raf.readFully(headerBuf)
+                        val chunkLen = ((headerBuf[0].toInt() and 0xFF) shl 24) or
+                                ((headerBuf[1].toInt() and 0xFF) shl 16) or
+                                ((headerBuf[2].toInt() and 0xFF) shl 8) or
+                                (headerBuf[3].toInt() and 0xFF)
 
-                    remaining -= n
-                    processed += n
+                        var nRead = 0
+                        while (nRead < chunkLen) {
+                            val toRead = (chunkLen - nRead).coerceAtMost(chunkBuf.size)
+                            val n = raf.read(chunkBuf, 0, toRead)
+                            if (n <= 0) break
+                            bufOut.write(chunkBuf, 0, n)
+                            crc32.update(chunkBuf, 0, n)
+                            sha256.update(chunkBuf, 0, n)
+                            nRead += n
+                            processed += n
+                        }
+                        raf.readFully(crcBuf)
+                        extractedBytes += chunkLen
 
-                    val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
-                    val speed = if (elapsed > 0) processed / elapsed else 0.0
-                    val pct = if (origSize > 0) ((processed.toFloat() / origSize) * 100f).coerceAtMost(99f) else 50f
+                        val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
+                        val speed = if (elapsed > 0) processed / elapsed else 0.0
+                        val pct = if (origSize > 0) ((processed.toFloat() / origSize) * 100f).coerceAtMost(99f) else 50f
 
-                    onProgress(
-                        ProgressState(
-                            phase = "Extracting Video Payload",
-                            bytesProcessed = processed,
-                            totalBytes = origSize,
-                            speedBytesSec = speed,
-                            percentage = pct
+                        onProgress(
+                            ProgressState(
+                                phase = "Extracting Video Payload",
+                                bytesProcessed = processed,
+                                totalBytes = origSize,
+                                speedBytesSec = speed,
+                                percentage = pct
+                            )
                         )
-                    )
+                    }
+                } else {
+                    var remaining = trailer.payloadLength
+                    val buffer = ByteArray(64 * 1024)
+
+                    while (remaining > 0) {
+                        val toRead = remaining.coerceAtMost(buffer.size.toLong()).toInt()
+                        val n = raf.read(buffer, 0, toRead)
+                        if (n <= 0) break
+
+                        bufOut.write(buffer, 0, n)
+                        crc32.update(buffer, 0, n)
+                        sha256.update(buffer, 0, n)
+
+                        remaining -= n
+                        processed += n
+
+                        val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
+                        val speed = if (elapsed > 0) processed / elapsed else 0.0
+                        val pct = if (origSize > 0) ((processed.toFloat() / origSize) * 100f).coerceAtMost(99f) else 50f
+
+                        onProgress(
+                            ProgressState(
+                                phase = "Extracting Video Payload",
+                                bytesProcessed = processed,
+                                totalBytes = origSize,
+                                speedBytesSec = speed,
+                                percentage = pct
+                            )
+                        )
+                    }
                 }
 
                 bufOut.flush()
