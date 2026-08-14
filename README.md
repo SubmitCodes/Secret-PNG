@@ -120,4 +120,4 @@ The output APK will be in `android_app/app/build/outputs/apk/debug/app-debug.apk
 ---
 
 ## 📄 License
-This project is open-source under the MIT License.
+This project is open-source under the [MIT License](LICENSE).
