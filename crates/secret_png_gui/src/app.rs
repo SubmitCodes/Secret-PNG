@@ -1,9 +1,8 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use egui::{
-    vec2, Align, Button, Color32, Layout, Margin, RichText, Rounding, Stroke,
+    vec2, Align, Button, Color32, ComboBox, Layout, Margin, RichText, Rounding, Stroke,
     TextureHandle, Ui,
 };
-use image::GenericImageView;
 use secret_png_core::{
     embed_files, extract_payload, inspect_carrier, strip_payload_to_file, EmbedOptions,
     EmbedReport, ExtractionReport, PayloadMetadata, ProgressUpdate, SanitizeReport, TrailerIndex,
@@ -12,6 +11,77 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppTheme {
+    CyberCyan,      // Default: Slate (#0B0F19), Navy Card (#161B22), Cyan (#38BDF8)
+    MidnightViolet, // Violet: Deep Obsidian (#0F0E17), Card (#1A162B), Violet (#A855F7)
+    EmeraldMatrix,  // Emerald: Pitch (#09140E), Card (#112419), Mint (#10B981)
+    CrimsonRuby,    // Ruby: Obsidian (#140B0E), Card (#231218), Rose (#F43F5E)
+    MonochromeDark, // Minimal: Charcoal (#121212), Card (#1E1E1E), Frost (#E2E8F0)
+}
+
+impl AppTheme {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AppTheme::CyberCyan => "Cyber Cyan (Default)",
+            AppTheme::MidnightViolet => "Midnight Violet",
+            AppTheme::EmeraldMatrix => "Emerald Matrix",
+            AppTheme::CrimsonRuby => "Crimson Ruby",
+            AppTheme::MonochromeDark => "Monochrome Dark",
+        }
+    }
+
+    pub fn bg(&self) -> Color32 {
+        match self {
+            AppTheme::CyberCyan => Color32::from_rgb(11, 15, 25),
+            AppTheme::MidnightViolet => Color32::from_rgb(15, 14, 23),
+            AppTheme::EmeraldMatrix => Color32::from_rgb(9, 20, 14),
+            AppTheme::CrimsonRuby => Color32::from_rgb(20, 11, 14),
+            AppTheme::MonochromeDark => Color32::from_rgb(18, 18, 18),
+        }
+    }
+
+    pub fn card_bg(&self) -> Color32 {
+        match self {
+            AppTheme::CyberCyan => Color32::from_rgb(22, 27, 34),
+            AppTheme::MidnightViolet => Color32::from_rgb(26, 22, 43),
+            AppTheme::EmeraldMatrix => Color32::from_rgb(17, 36, 25),
+            AppTheme::CrimsonRuby => Color32::from_rgb(35, 18, 24),
+            AppTheme::MonochromeDark => Color32::from_rgb(30, 30, 30),
+        }
+    }
+
+    pub fn card_border(&self) -> Color32 {
+        match self {
+            AppTheme::CyberCyan => Color32::from_rgb(48, 54, 61),
+            AppTheme::MidnightViolet => Color32::from_rgb(60, 48, 86),
+            AppTheme::EmeraldMatrix => Color32::from_rgb(34, 64, 48),
+            AppTheme::CrimsonRuby => Color32::from_rgb(70, 32, 42),
+            AppTheme::MonochromeDark => Color32::from_rgb(55, 55, 55),
+        }
+    }
+
+    pub fn accent(&self) -> Color32 {
+        match self {
+            AppTheme::CyberCyan => Color32::from_rgb(56, 189, 248),
+            AppTheme::MidnightViolet => Color32::from_rgb(168, 85, 247),
+            AppTheme::EmeraldMatrix => Color32::from_rgb(52, 211, 153),
+            AppTheme::CrimsonRuby => Color32::from_rgb(244, 63, 94),
+            AppTheme::MonochromeDark => Color32::from_rgb(226, 232, 240),
+        }
+    }
+
+    pub fn primary_btn_fill(&self) -> Color32 {
+        match self {
+            AppTheme::CyberCyan => Color32::from_rgb(2, 132, 199),
+            AppTheme::MidnightViolet => Color32::from_rgb(124, 58, 237),
+            AppTheme::EmeraldMatrix => Color32::from_rgb(5, 150, 105),
+            AppTheme::CrimsonRuby => Color32::from_rgb(225, 29, 72),
+            AppTheme::MonochromeDark => Color32::from_rgb(51, 65, 85),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveTab {
@@ -29,6 +99,7 @@ enum WorkerMessage {
 
 pub struct SecretPngApp {
     active_tab: ActiveTab,
+    theme: AppTheme,
 
     // Embed tab state
     embed_host_path: Option<PathBuf>,
@@ -72,6 +143,7 @@ impl Default for SecretPngApp {
         let (tx, rx) = unbounded();
         Self {
             active_tab: ActiveTab::Embed,
+            theme: AppTheme::CyberCyan,
             embed_host_path: None,
             embed_payload_path: None,
             embed_output_path: None,
@@ -140,8 +212,6 @@ impl SecretPngApp {
 
     fn load_thumbnail(ctx: &egui::Context, path: &Path, name: &str) -> Option<TextureHandle> {
         let img = image::open(path).ok()?;
-        let (_w, _h) = img.dimensions();
-        // Resize to maximum 240x160 thumbnail to save GPU memory
         let thumb = img.thumbnail(240, 160);
         let rgba = thumb.to_rgba8();
         let size = [rgba.width() as usize, rgba.height() as usize];
@@ -163,7 +233,7 @@ impl SecretPngApp {
                         Ok(report) => {
                             self.status_banner = Some((
                                 format!(
-                                    "Successfully embedded '{}' into carrier image!",
+                                    "Successfully concealed '{}' into carrier image!",
                                     report.original_file_name
                                 ),
                                 false,
@@ -202,7 +272,7 @@ impl SecretPngApp {
                         Ok(report) => {
                             self.status_banner = Some((
                                 format!(
-                                    "Image sanitized! Removed {} of hidden payload.",
+                                    "Image cleaned! Removed {} of hidden payload.",
                                     Self::format_bytes(report.payload_bytes_removed)
                                 ),
                                 false,
@@ -210,7 +280,7 @@ impl SecretPngApp {
                             self.last_sanitize_report = Some(report);
                         }
                         Err(e) => {
-                            self.status_banner = Some((format!("Sanitizing Failed: {}", e), true));
+                            self.status_banner = Some((format!("Cleaning Failed: {}", e), true));
                         }
                     }
                 }
@@ -221,26 +291,34 @@ impl SecretPngApp {
     // --- UI Renderers ---
 
     fn render_header(&mut self, ui: &mut Ui) {
+        let accent = self.theme.accent();
+
         ui.horizontal(|ui| {
-            ui.add_space(8.0);
+            ui.add_space(6.0);
             ui.heading(
-                RichText::new("🛡️ SECRET PNG")
-                    .size(24.0)
-                    .color(Color32::from_rgb(56, 189, 248))
+                RichText::new("SECRET PNG")
+                    .size(23.0)
+                    .color(accent)
                     .strong(),
             );
             ui.label(
-                RichText::new("Carrier Engine v1.0")
-                    .size(13.0)
+                RichText::new("v1.0")
+                    .size(12.0)
                     .color(Color32::from_rgb(148, 163, 184)),
             );
 
+            // Theme selector on top right
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    RichText::new("Buffered Streaming • ChaCha20-Poly1305 • BLAKE3")
-                        .size(11.0)
-                        .color(Color32::from_rgb(100, 116, 139)),
-                );
+                ComboBox::from_id_salt("theme_selector")
+                    .selected_text(RichText::new(format!("🎨 {}", self.theme.name())).size(12.0).color(accent))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.theme, AppTheme::CyberCyan, "Cyber Cyan (Default)");
+                        ui.selectable_value(&mut self.theme, AppTheme::MidnightViolet, "Midnight Violet");
+                        ui.selectable_value(&mut self.theme, AppTheme::EmeraldMatrix, "Emerald Matrix");
+                        ui.selectable_value(&mut self.theme, AppTheme::CrimsonRuby, "Crimson Ruby");
+                        ui.selectable_value(&mut self.theme, AppTheme::MonochromeDark, "Monochrome Dark");
+                    });
+                ui.label(RichText::new("Theme:").size(12.0).color(Color32::from_rgb(148, 163, 184)));
             });
         });
 
@@ -248,11 +326,11 @@ impl SecretPngApp {
 
         // Tab Navigation Bar
         ui.horizontal(|ui| {
-            ui.add_space(8.0);
+            ui.add_space(6.0);
             let tabs = [
-                (ActiveTab::Embed, "📦 Embed Video into Image"),
-                (ActiveTab::Extract, "🔓 Extract Video from Image"),
-                (ActiveTab::InspectSanitize, "🔍 Inspect & Sanitize"),
+                (ActiveTab::Embed, "Embed Video"),
+                (ActiveTab::Extract, "Extract Video"),
+                (ActiveTab::InspectSanitize, "Inspect & Clean"),
             ];
 
             for (tab, label) in tabs {
@@ -260,10 +338,10 @@ impl SecretPngApp {
                 let bg_color = if is_active {
                     Color32::from_rgb(30, 41, 59)
                 } else {
-                    Color32::from_rgb(15, 23, 42)
+                    self.theme.bg()
                 };
                 let text_color = if is_active {
-                    Color32::from_rgb(56, 189, 248)
+                    accent
                 } else {
                     Color32::from_rgb(148, 163, 184)
                 };
@@ -273,11 +351,12 @@ impl SecretPngApp {
                     .stroke(Stroke::new(
                         1.0_f32,
                         if is_active {
-                            Color32::from_rgb(56, 189, 248)
+                            accent
                         } else {
-                            Color32::from_rgb(51, 65, 85)
+                            self.theme.card_border()
                         },
                     ))
+                    .min_size(vec2(130.0, 34.0))
                     .rounding(Rounding::same(6.0));
 
                 if ui.add(btn).clicked() {
@@ -288,7 +367,7 @@ impl SecretPngApp {
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
         ui.separator();
     }
 
@@ -299,14 +378,14 @@ impl SecretPngApp {
                     Color32::from_rgb(69, 10, 10),
                     Color32::from_rgb(239, 68, 68),
                     Color32::from_rgb(254, 202, 202),
-                    "⚠️",
+                    "!",
                 )
             } else {
                 (
                     Color32::from_rgb(6, 78, 59),
                     Color32::from_rgb(16, 185, 129),
                     Color32::from_rgb(167, 243, 208),
-                    "✅",
+                    "✓",
                 )
             };
 
@@ -317,7 +396,7 @@ impl SecretPngApp {
                 .inner_margin(Margin::same(10.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(icon).size(16.0));
+                        ui.label(RichText::new(icon).size(16.0).strong());
                         ui.label(RichText::new(msg).color(text_color).strong().size(13.0));
                     });
                 });
@@ -327,9 +406,11 @@ impl SecretPngApp {
 
     fn render_progress_card(&mut self, ui: &mut Ui) {
         if let Some(ref progress) = self.current_progress {
+            let accent = self.theme.accent();
+
             egui::Frame::none()
                 .fill(Color32::from_rgb(15, 23, 42))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(56, 189, 248)))
+                .stroke(Stroke::new(1.0_f32, accent))
                 .rounding(Rounding::same(8.0))
                 .inner_margin(Margin::same(12.0))
                 .show(ui, |ui| {
@@ -337,7 +418,7 @@ impl SecretPngApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(&progress.phase)
-                                    .color(Color32::from_rgb(56, 189, 248))
+                                    .color(accent)
                                     .strong(),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -351,7 +432,7 @@ impl SecretPngApp {
 
                         ui.add_space(6.0);
                         let bar = egui::ProgressBar::new(progress.percentage / 100.0)
-                            .fill(Color32::from_rgb(56, 189, 248))
+                            .fill(accent)
                             .animate(true);
                         ui.add(bar);
 
@@ -384,34 +465,39 @@ impl SecretPngApp {
 
     fn render_embed_tab(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let is_busy = self.is_working.load(Ordering::SeqCst);
+        let accent = self.theme.accent();
+        let card_bg = self.theme.card_bg();
+        let card_border = self.theme.card_border();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // 1. Host Cover Image Selector
             egui::Frame::none()
-                .fill(Color32::from_rgb(22, 27, 34))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                .fill(card_bg)
+                .stroke(Stroke::new(1.0_f32, card_border))
                 .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(12.0))
+                .inner_margin(Margin::same(14.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("🖼️ Host Cover Image")
+                            RichText::new("Cover Image")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui
-                                .add_enabled(!is_busy, Button::new("Browse Image..."))
-                                .clicked()
-                            {
+                            let browse_btn = Button::new(RichText::new("Browse Image...").size(13.0))
+                                .min_size(vec2(150.0, 32.0))
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0_f32, card_border))
+                                .rounding(Rounding::same(6.0));
+
+                            if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Image Files", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
                                     .pick_file()
                                 {
                                     self.embed_host_path = Some(path.clone());
                                     self.host_thumbnail = Self::load_thumbnail(ctx, &path, "host_thumb");
-                                    // Auto configure default output carrier path
                                     if self.embed_output_path.is_none() {
                                         let parent = path.parent().unwrap_or_else(|| Path::new("."));
                                         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("carrier");
@@ -433,7 +519,7 @@ impl SecretPngApp {
                             ui.vertical(|ui| {
                                 ui.label(
                                     RichText::new(path.file_name().unwrap_or_default().to_string_lossy())
-                                        .color(Color32::from_rgb(56, 189, 248))
+                                        .color(accent)
                                         .strong(),
                                 );
                                 ui.label(
@@ -452,9 +538,8 @@ impl SecretPngApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Select any PNG, JPEG, WebP, GIF or BMP image to act as the visual cover.")
-                                .color(Color32::from_rgb(100, 116, 139))
-                                .italics(),
+                            RichText::new("Select any image (PNG, JPEG, WebP, GIF, BMP) to act as the visual cover.")
+                                .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
                 });
@@ -463,26 +548,29 @@ impl SecretPngApp {
 
             // 2. Secret Video Payload Selector
             egui::Frame::none()
-                .fill(Color32::from_rgb(22, 27, 34))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                .fill(card_bg)
+                .stroke(Stroke::new(1.0_f32, card_border))
                 .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(12.0))
+                .inner_margin(Margin::same(14.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("🎬 Secret Video Payload")
+                            RichText::new("Video File")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui
-                                .add_enabled(!is_busy, Button::new("Browse Video / Media..."))
-                                .clicked()
-                            {
+                            let browse_btn = Button::new(RichText::new("Browse Video...").size(13.0))
+                                .min_size(vec2(150.0, 32.0))
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0_f32, card_border))
+                                .rounding(Rounding::same(6.0));
+
+                            if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter(
-                                        "Video / Media Files",
+                                        "Video Files",
                                         &["mp4", "mkv", "mov", "webm", "avi", "flv", "wmv", "ts", "zip", "bin", "*"],
                                     )
                                     .pick_file()
@@ -516,9 +604,8 @@ impl SecretPngApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Select any video file (e.g. MP4, MKV, MOV, WebM, multi-GB 4K videos).")
-                                .color(Color32::from_rgb(100, 116, 139))
-                                .italics(),
+                            RichText::new("Select any video file (MP4, MKV, MOV, WebM, 4K movies).")
+                                .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
                 });
@@ -527,47 +614,26 @@ impl SecretPngApp {
 
             // 3. Security & Destination Options
             egui::Frame::none()
-                .fill(Color32::from_rgb(22, 27, 34))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                .fill(card_bg)
+                .stroke(Stroke::new(1.0_f32, card_border))
                 .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(12.0))
+                .inner_margin(Margin::same(14.0))
                 .show(ui, |ui| {
                     ui.label(
-                        RichText::new("🔐 Security & Output Options")
+                        RichText::new("Options & Protection")
                             .size(15.0)
                             .color(Color32::WHITE)
                             .strong(),
                     );
-                    ui.add_space(6.0);
-
-                    // Universal Carrier Feature Badge
-                    egui::Frame::none()
-                        .fill(Color32::from_rgb(15, 23, 42))
-                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(30, 58, 138)))
-                        .rounding(Rounding::same(6.0))
-                        .inner_margin(Margin::same(8.0))
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new("✨").size(14.0));
-                                ui.label(
-                                    RichText::new(
-                                        "Universal Stream Engine: Any image format (PNG, JPG, WebP) is automatically supported with zero viewer size limits and full password protection.",
-                                    )
-                                    .color(Color32::from_rgb(226, 232, 240))
-                                    .size(11.5),
-                                );
-                            });
-                        });
-
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
 
                     // Output file path
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Carrier Output:").strong());
+                        ui.label(RichText::new("Save Output As:").strong());
                         if let Some(ref p) = self.embed_output_path {
                             ui.label(
                                 RichText::new(p.display().to_string())
-                                    .color(Color32::from_rgb(56, 189, 248))
+                                    .color(accent)
                                     .size(12.0),
                             );
                         } else {
@@ -575,9 +641,10 @@ impl SecretPngApp {
                         }
 
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let save_btn = Button::new(RichText::new("📂 Choose Save Location...").size(12.0))
+                            let save_btn = Button::new(RichText::new("Choose Location...").size(13.0))
+                                .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
-                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                                .stroke(Stroke::new(1.0_f32, card_border))
                                 .rounding(Rounding::same(6.0));
                             if ui.add(save_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
@@ -593,7 +660,7 @@ impl SecretPngApp {
                     ui.add_space(8.0);
                     ui.checkbox(
                         &mut self.embed_enable_encryption,
-                        RichText::new("Enable ChaCha20-Poly1305 + Argon2id Password Encryption").strong(),
+                        RichText::new("Protect with a Password").strong(),
                     );
 
                     if self.embed_enable_encryption {
@@ -602,7 +669,7 @@ impl SecretPngApp {
                             ui.label("Password:");
                             let edit = egui::TextEdit::singleline(&mut self.embed_password)
                                 .password(!self.embed_show_password)
-                                .desired_width(220.0);
+                                .desired_width(240.0);
                             ui.add(edit);
                             ui.checkbox(&mut self.embed_show_password, "Show");
                         });
@@ -619,9 +686,9 @@ impl SecretPngApp {
                 && (!self.embed_enable_encryption || !self.embed_password.is_empty());
 
             let btn_text = if is_busy {
-                "⏳ Processing Streaming Carrier..."
+                "Processing Carrier..."
             } else {
-                "🚀 Embed & Conceal Video into Image"
+                "Embed Video into Image"
             };
 
             let embed_btn = Button::new(
@@ -631,19 +698,19 @@ impl SecretPngApp {
                     .strong(),
             )
             .fill(if can_embed {
-                Color32::from_rgb(2, 132, 199)
+                self.theme.primary_btn_fill()
             } else {
                 Color32::from_rgb(30, 41, 59)
             })
             .stroke(Stroke::new(
                 1.0_f32,
                 if can_embed {
-                    Color32::from_rgb(56, 189, 248)
+                    accent
                 } else {
-                    Color32::from_rgb(51, 65, 85)
+                    card_border
                 },
             ))
-            .min_size(vec2(ui.available_width(), 46.0))
+            .min_size(vec2(ui.available_width(), 48.0))
             .rounding(Rounding::same(8.0));
 
             if ui.add_enabled(can_embed, embed_btn).clicked() {
@@ -657,22 +724,21 @@ impl SecretPngApp {
                     .fill(Color32::from_rgb(13, 27, 42))
                     .stroke(Stroke::new(1.0_f32, Color32::from_rgb(16, 185, 129)))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("🎉 Embedding Report")
+                            RichText::new("Operation Complete")
                                 .size(15.0)
                                 .color(Color32::from_rgb(52, 211, 153))
                                 .strong(),
                         );
                         ui.add_space(4.0);
                         ui.label(format!("• Carrier Output: {}", self.embed_output_path.as_ref().unwrap().display()));
-                        ui.label(format!("• Host Cover Size: {}", Self::format_bytes(report.host_image_size)));
+                        ui.label(format!("• Cover Image Size: {}", Self::format_bytes(report.host_image_size)));
                         ui.label(format!("• Video Payload Size: {}", Self::format_bytes(report.payload_size)));
-                        ui.label(format!("• Total Carrier Size: {}", Self::format_bytes(report.total_carrier_size)));
-                        ui.label(format!("• BLAKE3 Checksum: {}", report.blake3_hex));
-                        ui.label(format!("• CRC32: 0x{:08X}", report.crc32));
-                        ui.label(format!("• Elapsed Time: {:.2}s", report.elapsed_millis as f64 / 1000.0));
+                        ui.label(format!("• Total File Size: {}", Self::format_bytes(report.total_carrier_size)));
+                        ui.label(format!("• Checksum (BLAKE3): {}", report.blake3_hex));
+                        ui.label(format!("• Time Elapsed: {:.2}s", report.elapsed_millis as f64 / 1000.0));
                     });
             }
         });
@@ -713,27 +779,33 @@ impl SecretPngApp {
 
     fn render_extract_tab(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let is_busy = self.is_working.load(Ordering::SeqCst);
+        let accent = self.theme.accent();
+        let card_bg = self.theme.card_bg();
+        let card_border = self.theme.card_border();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // 1. Carrier Image Selector
             egui::Frame::none()
-                .fill(Color32::from_rgb(22, 27, 34))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                .fill(card_bg)
+                .stroke(Stroke::new(1.0_f32, card_border))
                 .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(12.0))
+                .inner_margin(Margin::same(14.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("🖼️ Carrier Image to Extract From")
+                            RichText::new("Carrier Image")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui
-                                .add_enabled(!is_busy, Button::new("Browse Carrier Image..."))
-                                .clicked()
-                            {
+                            let browse_btn = Button::new(RichText::new("Browse Image...").size(13.0))
+                                .min_size(vec2(150.0, 32.0))
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0_f32, card_border))
+                                .rounding(Rounding::same(6.0));
+
+                            if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
                                     .pick_file()
@@ -741,7 +813,6 @@ impl SecretPngApp {
                                     self.extract_carrier_path = Some(path.clone());
                                     self.carrier_thumbnail = Self::load_thumbnail(ctx, &path, "carrier_thumb");
 
-                                    // Instant O(1) metadata inspection
                                     match inspect_carrier(&path) {
                                         Ok(meta) => {
                                             self.extract_inspected_meta = Some(meta.clone());
@@ -776,7 +847,7 @@ impl SecretPngApp {
                             ui.vertical(|ui| {
                                 ui.label(
                                     RichText::new(path.file_name().unwrap_or_default().to_string_lossy())
-                                        .color(Color32::from_rgb(56, 189, 248))
+                                        .color(accent)
                                         .strong(),
                                 );
                                 ui.label(
@@ -795,9 +866,8 @@ impl SecretPngApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Choose a carrier image file containing an embedded video.")
-                                .color(Color32::from_rgb(100, 116, 139))
-                                .italics(),
+                            RichText::new("Choose an image file that contains an embedded video.")
+                                .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
                 });
@@ -805,34 +875,30 @@ impl SecretPngApp {
             ui.add_space(10.0);
 
             // 2. Detected Payload Info
-            if let Some((ref trailer, ref meta)) = self.extract_inspected_meta {
+            if let Some((ref _trailer, ref meta)) = self.extract_inspected_meta {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(15, 23, 42))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(56, 189, 248)))
+                    .stroke(Stroke::new(1.0_f32, accent))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("📦 Detected Embedded Payload")
+                            RichText::new("Detected Video Payload")
                                 .size(15.0)
-                                .color(Color32::from_rgb(56, 189, 248))
+                                .color(accent)
                                 .strong(),
                         );
                         ui.add_space(4.0);
                         ui.label(format!("• Original Filename: {}", meta.original_filename));
-                        ui.label(format!("• Format / MIME: .{} ({})", meta.file_extension, meta.mime_type));
-                        ui.label(format!("• Video File Size: {}", Self::format_bytes(meta.original_file_size)));
-                        ui.label(format!("• Host Image Size: {}", Self::format_bytes(trailer.host_image_size)));
+                        ui.label(format!("• Video Size: {}", Self::format_bytes(meta.original_file_size)));
                         ui.label(format!(
-                            "• Encryption: {}",
+                            "• Protection: {}",
                             if meta.is_encrypted {
-                                "🔒 Password Protected (ChaCha20-Poly1305)"
+                                "Password Protected"
                             } else {
-                                "🔓 Unencrypted Raw Stream"
+                                "Unencrypted"
                             }
                         ));
-                        ui.label(format!("• BLAKE3 Checksum: {}", meta.blake3_hex));
-                        ui.label(format!("• CRC32: 0x{:08X}", meta.crc32));
                     });
 
                 ui.add_space(10.0);
@@ -840,17 +906,17 @@ impl SecretPngApp {
                 // Password input if encrypted
                 if meta.is_encrypted {
                     egui::Frame::none()
-                        .fill(Color32::from_rgb(30, 27, 75))
+                        .fill(card_bg)
                         .stroke(Stroke::new(1.0_f32, Color32::from_rgb(129, 140, 248)))
                         .rounding(Rounding::same(8.0))
-                        .inner_margin(Margin::same(12.0))
+                        .inner_margin(Margin::same(14.0))
                         .show(ui, |ui| {
                             ui.label(
-                                RichText::new("🔐 Decryption Required")
+                                RichText::new("Password Required")
                                     .color(Color32::from_rgb(199, 210, 254))
                                     .strong(),
                             );
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                             ui.horizontal(|ui| {
                                 ui.label("Password:");
                                 let edit = egui::TextEdit::singleline(&mut self.extract_password)
@@ -865,22 +931,27 @@ impl SecretPngApp {
 
                 // Output file selector
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(22, 27, 34))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                    .fill(card_bg)
+                    .stroke(Stroke::new(1.0_f32, card_border))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Save Extracted Video As:");
+                            ui.label(RichText::new("Save Extracted Video As:").strong());
                             if let Some(ref p) = self.extract_output_path {
                                 ui.label(
                                     RichText::new(p.display().to_string())
-                                        .color(Color32::from_rgb(56, 189, 248))
+                                        .color(accent)
                                         .size(12.0),
-                            );
+                                );
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui.button("Change Output Location...").clicked() {
+                                let change_btn = Button::new(RichText::new("Choose Location...").size(13.0))
+                                    .min_size(vec2(150.0, 32.0))
+                                    .fill(Color32::from_rgb(30, 41, 59))
+                                    .stroke(Stroke::new(1.0_f32, card_border))
+                                    .rounding(Rounding::same(6.0));
+                                if ui.add(change_btn).clicked() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .set_file_name(&meta.original_filename)
                                         .save_file()
@@ -902,23 +973,31 @@ impl SecretPngApp {
                     && (!is_encrypted || !self.extract_password.is_empty());
 
                 let btn_text = if is_busy {
-                    "⏳ Extracting & Verifying Checksum..."
+                    "Extracting Video..."
                 } else {
-                    "🔓 Extract Video Payload to Standalone File"
+                    "Extract Video from Image"
                 };
 
                 let extract_btn = Button::new(
                     RichText::new(btn_text)
                         .size(16.0)
-                        .color(if can_extract { Color32::BLACK } else { Color32::GRAY })
+                        .color(if can_extract { Color32::WHITE } else { Color32::GRAY })
                         .strong(),
                 )
                 .fill(if can_extract {
-                    Color32::from_rgb(52, 211, 153)
+                    Color32::from_rgb(5, 150, 105)
                 } else {
                     Color32::from_rgb(51, 65, 85)
                 })
-                .min_size(vec2(ui.available_width(), 44.0))
+                .stroke(Stroke::new(
+                    1.0_f32,
+                    if can_extract {
+                        Color32::from_rgb(52, 211, 153)
+                    } else {
+                        card_border
+                    },
+                ))
+                .min_size(vec2(ui.available_width(), 48.0))
                 .rounding(Rounding::same(8.0));
 
                 if ui.add_enabled(can_extract, extract_btn).clicked() {
@@ -933,20 +1012,18 @@ impl SecretPngApp {
                     .fill(Color32::from_rgb(13, 27, 42))
                     .stroke(Stroke::new(1.0_f32, Color32::from_rgb(16, 185, 129)))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("🎉 Video Extracted & Verified!")
+                            RichText::new("Extraction Complete")
                                 .size(15.0)
                                 .color(Color32::from_rgb(52, 211, 153))
                                 .strong(),
                         );
                         ui.add_space(4.0);
-                        ui.label(format!("• Output Path: {}", report.output_path.display()));
-                        ui.label(format!("• Original Filename: {}", report.original_filename));
-                        ui.label(format!("• Payload Size: {}", Self::format_bytes(report.file_size)));
-                        ui.label(format!("• Verified BLAKE3: {}", report.blake3_hex));
-                        ui.label(format!("• Elapsed Time: {:.2}s", report.elapsed_millis as f64 / 1000.0));
+                        ui.label(format!("• Output: {}", report.output_path.display()));
+                        ui.label(format!("• Size: {}", Self::format_bytes(report.file_size)));
+                        ui.label(format!("• Time Elapsed: {:.2}s", report.elapsed_millis as f64 / 1000.0));
                     });
             }
         });
@@ -986,23 +1063,31 @@ impl SecretPngApp {
 
     fn render_inspect_sanitize_tab(&mut self, ui: &mut Ui, _ctx: &egui::Context) {
         let is_busy = self.is_working.load(Ordering::SeqCst);
+        let card_bg = self.theme.card_bg();
+        let card_border = self.theme.card_border();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Frame::none()
-                .fill(Color32::from_rgb(22, 27, 34))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                .fill(card_bg)
+                .stroke(Stroke::new(1.0_f32, card_border))
                 .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(12.0))
+                .inner_margin(Margin::same(14.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("🔍 Inspect & Sanitize Image")
+                            RichText::new("Inspect & Clean Image")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.add_enabled(!is_busy, Button::new("Select Image...")).clicked() {
+                            let select_btn = Button::new(RichText::new("Select Image...").size(13.0))
+                                .min_size(vec2(150.0, 32.0))
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0_f32, card_border))
+                                .rounding(Rounding::same(6.0));
+
+                            if ui.add_enabled(!is_busy, select_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
                                     .pick_file()
@@ -1014,11 +1099,11 @@ impl SecretPngApp {
                                             let parent = path.parent().unwrap_or_else(|| Path::new("."));
                                             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("clean");
                                             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
-                                            self.sanitize_output_path = Some(parent.join(format!("{}_sanitized.{}", stem, ext)));
+                                            self.sanitize_output_path = Some(parent.join(format!("{}_clean.{}", stem, ext)));
                                         }
                                         Err(e) => {
                                             self.inspect_inspected_meta = None;
-                                            self.status_banner = Some((format!("No carrier payload detected: {}", e), false));
+                                            self.status_banner = Some((format!("No hidden video found: {}", e), false));
                                         }
                                     }
                                 }
@@ -1034,55 +1119,55 @@ impl SecretPngApp {
 
             ui.add_space(10.0);
 
-            if let Some((ref trailer, ref meta)) = self.inspect_inspected_meta {
+            if let Some((ref _trailer, ref meta)) = self.inspect_inspected_meta {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(15, 23, 42))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(56, 189, 248)))
+                    .stroke(Stroke::new(1.0_f32, self.theme.accent()))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("📊 Carrier Geometry & Details")
+                            RichText::new("Carrier File Details")
                                 .size(15.0)
-                                .color(Color32::from_rgb(56, 189, 248))
+                                .color(self.theme.accent())
                                 .strong(),
                         );
-                        ui.add_space(6.0);
-                        ui.label(format!("• Protocol Version: v{}", meta.protocol_version));
-                        ui.label(format!("• Original File: {}", meta.original_filename));
+                        ui.add_space(4.0);
+                        ui.label(format!("• Original Video: {}", meta.original_filename));
                         ui.label(format!("• Video Size: {}", Self::format_bytes(meta.original_file_size)));
-                        ui.label(format!("• Host Image Size: {}", Self::format_bytes(trailer.host_image_size)));
-                        ui.label(format!("• Payload Stream Size: {}", Self::format_bytes(trailer.payload_length)));
-                        ui.label(format!("• Metadata Block Size: {} bytes", trailer.metadata_length));
-                        ui.label(format!("• Fixed Trailer Size: 64 bytes"));
-                        ui.label(format!("• Host Format: {}", meta.host_image_format));
+                        ui.label(format!("• Format: {}", meta.host_image_format));
                     });
 
                 ui.add_space(10.0);
 
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(22, 27, 34))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 54, 61)))
+                    .fill(card_bg)
+                    .stroke(Stroke::new(1.0_f32, card_border))
                     .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("🧹 Sanitize Image (Remove Payload)")
+                            RichText::new("Remove Embedded Video")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.add_space(6.0);
-                        ui.label("This will strip the embedded payload, restoring the exact pristine original cover image.");
-                        ui.add_space(6.0);
+                        ui.label("This will strip the embedded video, restoring the original untouched cover image.");
+                        ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            ui.label("Clean Output File:");
+                            ui.label(RichText::new("Clean Output File:").strong());
                             if let Some(ref p) = self.sanitize_output_path {
-                                ui.label(RichText::new(p.display().to_string()).color(Color32::from_rgb(56, 189, 248)));
+                                ui.label(RichText::new(p.display().to_string()).color(self.theme.accent()));
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui.button("Choose Location...").clicked() {
+                                let choose_btn = Button::new(RichText::new("Choose Location...").size(13.0))
+                                    .min_size(vec2(150.0, 32.0))
+                                    .fill(Color32::from_rgb(30, 41, 59))
+                                    .stroke(Stroke::new(1.0_f32, card_border))
+                                    .rounding(Rounding::same(6.0));
+                                if ui.add(choose_btn).clicked() {
                                     if let Some(path) = rfd::FileDialog::new().save_file() {
                                         self.sanitize_output_path = Some(path);
                                     }
@@ -1090,21 +1175,29 @@ impl SecretPngApp {
                             });
                         });
 
-                        ui.add_space(10.0);
+                        ui.add_space(12.0);
                         let can_sanitize = !is_busy && self.inspect_path.is_some() && self.sanitize_output_path.is_some();
                         let sanitize_btn = Button::new(
-                            RichText::new("🧹 Clean & Sanitize Image")
+                            RichText::new("Remove Hidden Video")
                                 .size(15.0)
-                                .color(if can_sanitize { Color32::BLACK } else { Color32::GRAY })
+                                .color(if can_sanitize { Color32::WHITE } else { Color32::GRAY })
                                 .strong(),
                         )
                         .fill(if can_sanitize {
-                            Color32::from_rgb(248, 113, 113)
+                            Color32::from_rgb(225, 29, 72)
                         } else {
                             Color32::from_rgb(51, 65, 85)
                         })
-                        .min_size(vec2(ui.available_width(), 38.0))
-                        .rounding(Rounding::same(6.0));
+                        .stroke(Stroke::new(
+                            1.0_f32,
+                            if can_sanitize {
+                                Color32::from_rgb(251, 113, 133)
+                            } else {
+                                card_border
+                            },
+                        ))
+                        .min_size(vec2(ui.available_width(), 44.0))
+                        .rounding(Rounding::same(8.0));
 
                         if ui.add_enabled(can_sanitize, sanitize_btn).clicked() {
                             self.start_sanitizing();
@@ -1134,11 +1227,10 @@ impl eframe::App for SecretPngApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_worker_messages(ctx);
 
-        // Dark modern style
         let mut style = (*ctx.style()).clone();
         style.visuals.dark_mode = true;
         style.visuals.override_text_color = Some(Color32::from_rgb(241, 245, 249));
-        style.visuals.panel_fill = Color32::from_rgb(13, 17, 23);
+        style.visuals.panel_fill = self.theme.bg();
         ctx.set_style(style);
 
         egui::CentralPanel::default().show(ctx, |ui| {
