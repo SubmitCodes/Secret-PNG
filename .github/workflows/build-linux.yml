@@ -30,11 +30,11 @@ jobs:
       - name: Build Linux Release
         run: |
           cargo build --release --workspace
-          cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
-          chmod +x ./SecretPNG_Linux_x86_64
+          cp target/release/secret_png_gui ./Stow_Linux_x86_64
+          chmod +x ./Stow_Linux_x86_64
 
       - name: Upload Linux Asset to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ github.event.inputs.tag_name }}"
-          files: SecretPNG_Linux_x86_64
+          files: Stow_Linux_x86_64

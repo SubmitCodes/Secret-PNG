@@ -97,9 +97,12 @@ enum WorkerMessage {
     SanitizeDone(Result<SanitizeReport, String>),
 }
 
-pub struct SecretPngApp {
+pub struct StowApp {
     active_tab: ActiveTab,
     theme: AppTheme,
+
+    // App Branding Logo
+    app_logo: Option<TextureHandle>,
 
     // Embed tab state
     embed_host_path: Option<PathBuf>,
@@ -138,12 +141,15 @@ pub struct SecretPngApp {
     last_sanitize_report: Option<SanitizeReport>,
 }
 
-impl Default for SecretPngApp {
+pub type SecretPngApp = StowApp;
+
+impl Default for StowApp {
     fn default() -> Self {
         let (tx, rx) = unbounded();
         Self {
             active_tab: ActiveTab::Embed,
             theme: AppTheme::CyberCyan,
+            app_logo: None,
             embed_host_path: None,
             embed_payload_path: None,
             embed_output_path: None,
@@ -177,7 +183,19 @@ impl Default for SecretPngApp {
     }
 }
 
-impl SecretPngApp {
+impl StowApp {
+    pub fn new(ctx: &egui::Context) -> Self {
+        let mut app = Self::default();
+        let logo_bytes = include_bytes!("../assets/logo.png");
+        if let Ok(img) = image::load_from_memory(logo_bytes) {
+            let rgba = img.to_rgba8();
+            let size = [rgba.width() as usize, rgba.height() as usize];
+            let color_img = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+            app.app_logo = Some(ctx.load_texture("stow_logo", color_img, Default::default()));
+        }
+        app
+    }
+
     fn format_bytes(bytes: u64) -> String {
         const KB: u64 = 1024;
         const MB: u64 = 1024 * KB;
@@ -295,8 +313,15 @@ impl SecretPngApp {
 
         ui.horizontal(|ui| {
             ui.add_space(6.0);
+
+            // Render Stow Logo
+            if let Some(ref logo) = self.app_logo {
+                ui.image((logo.id(), vec2(28.0, 28.0)));
+                ui.add_space(4.0);
+            }
+
             ui.heading(
-                RichText::new("SECRET PNG")
+                RichText::new("STOW")
                     .size(23.0)
                     .color(accent)
                     .strong(),
@@ -1223,7 +1248,7 @@ impl SecretPngApp {
     }
 }
 
-impl eframe::App for SecretPngApp {
+impl eframe::App for StowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_worker_messages(ctx);
 

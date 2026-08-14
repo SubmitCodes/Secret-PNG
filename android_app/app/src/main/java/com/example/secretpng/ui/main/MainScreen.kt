@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.example.secretpng.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -191,15 +194,23 @@ fun MainScreen(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 14.dp)
         ) {
+            Image(
+                painter = painterResource(id = R.drawable.stow_logo),
+                contentDescription = "Stow Logo",
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(6.dp))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "🛡️ SECRET PNG",
+                text = "STOW",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = AccentCyan
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
-                text = "Native Streaming v1.0",
+                text = "v1.0",
                 fontSize = 12.sp,
                 color = TextMuted
             )

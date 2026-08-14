@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Installing Secret PNG on Linux ==="
+echo "=== Installing Stow on Linux ==="
 
 # Build release binaries if not already built
 if [ ! -f "target/release/secret_png_gui" ]; then
@@ -10,15 +10,21 @@ if [ ! -f "target/release/secret_png_gui" ]; then
 fi
 
 echo "Installing binaries to /usr/local/bin..."
-sudo install -m 755 target/release/secret_png_gui /usr/local/bin/secret_png_gui
-sudo install -m 755 target/release/secret_png_cli /usr/local/bin/secret-png
+sudo install -m 755 target/release/secret_png_gui /usr/local/bin/stow-gui
+sudo install -m 755 target/release/secret_png_cli /usr/local/bin/stow-cli
+
+# Install Icon
+if [ -d "/usr/share/icons/hicolor/512x512/apps" ]; then
+    echo "Installing app icon..."
+    sudo cp Stow.png /usr/share/icons/hicolor/512x512/apps/stow.png || true
+fi
 
 # Install Desktop Entry
 if [ -d "$HOME/.local/share/applications" ]; then
     echo "Installing desktop launcher..."
-    cp SecretPNG.desktop "$HOME/.local/share/applications/SecretPNG.desktop"
-    chmod +x "$HOME/.local/share/applications/SecretPNG.desktop"
+    cp Stow.desktop "$HOME/.local/share/applications/Stow.desktop"
+    chmod +x "$HOME/.local/share/applications/Stow.desktop"
 fi
 
 echo "=== Installation Complete! ==="
-echo "You can now run 'secret_png_gui' or launch 'Secret PNG' from your application menu!"
+echo "You can now run 'stow-gui' or launch 'Stow' from your application menu!"

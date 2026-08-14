@@ -1,0 +1,38 @@
+name: 🍎 Release macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Version Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    name: Build macOS & Upload to Release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Build Universal macOS Binary
+        run: |
+          cargo build --release --target x86_64-apple-darwin --bin secret_png_gui
+          cargo build --release --target aarch64-apple-darwin --bin secret_png_gui
+          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
+          chmod +x Stow_macOS_universal
+
+      - name: Upload macOS Asset to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ github.event.inputs.tag_name }}"
+          files: Stow_macOS_universal

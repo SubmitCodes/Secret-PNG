@@ -12,55 +12,88 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release-all:
-    name: Build All & Publish Release
+  build-linux:
+    name: Build Linux
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      # 1. Setup Rust
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
-
-      # 2. Build Linux Binary
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux GUI Libraries
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq pkg-config libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
+      - run: cargo build --release --workspace
+      - name: Save Linux Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: target/release/secret_png_gui
 
-      - name: Build Linux Release
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build Universal macOS Binary
         run: |
-          cargo build --release --workspace
-          cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
-          chmod +x ./SecretPNG_Linux_x86_64
+          cargo build --release --target x86_64-apple-darwin --bin secret_png_gui
+          cargo build --release --target aarch64-apple-darwin --bin secret_png_gui
+          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
+          chmod +x Stow_macOS_universal
+      - name: Save macOS Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: Stow_macOS_universal
 
-      # 3. Setup Pre-built Windows & Android Assets from repository
-      - name: Copy Windows and Android Assets
+  publish-all:
+    name: Package & Publish All Platforms
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binary
+          path: ./
+
+      - name: Download macOS Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binary
+          path: ./
+
+      - name: Prepare Assets
         run: |
-          cp dist/windows/SecretPNG_GUI.exe ./SecretPNG_Windows_x64.exe
-          cp dist/android/SecretPNG.apk ./SecretPNG_Android.apk
+          mv secret_png_gui Stow_Linux_x86_64
+          chmod +x Stow_Linux_x86_64 Stow_macOS_universal
+          cp dist/windows/Stow.exe ./Stow_Windows_x64.exe
+          cp dist/android/Stow.apk ./Stow_Android.apk
 
-      # 4. Upload All 3 Assets to GitHub Release
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ github.event.inputs.tag_name }}"
-          name: "Secret PNG ${{ github.event.inputs.tag_name }}"
+          name: "Stow ${{ github.event.inputs.tag_name }}"
           body: |
-            # 🛡️ Secret PNG ${{ github.event.inputs.tag_name }}
+            # 📦 Stow ${{ github.event.inputs.tag_name }}
 
-            High-speed steganographic video concealer and extractor.
+            High-speed steganographic video concealer and extractor with zero size limits.
 
             ---
 
-            ### 📦 Direct Downloads:
-            - **🪟 Windows (Standalone .exe)**: [`SecretPNG_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Windows_x64.exe)
-            - **📱 Android (APK)**: [`SecretPNG_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Android.apk)
-            - **🐧 Linux (64-bit)**: [`SecretPNG_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Linux_x86_64)
+            ### 🚀 Direct Downloads:
+            - **🪟 Windows (Standalone .exe)**: [`Stow_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Windows_x64.exe)
+            - **🍎 macOS (Universal Apple Silicon + Intel)**: [`Stow_macOS_universal`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS_universal)
+            - **🐧 Linux (64-bit)**: [`Stow_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Linux_x86_64)
+            - **📱 Android (APK)**: [`Stow_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Android.apk)
           files: |
-            SecretPNG_Windows_x64.exe
-            SecretPNG_Android.apk
-            SecretPNG_Linux_x86_64
+            Stow_Windows_x64.exe
+            Stow_macOS_universal
+            Stow_Linux_x86_64
+            Stow_Android.apk

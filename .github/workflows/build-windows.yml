@@ -26,10 +26,10 @@ jobs:
         run: cargo build --release --workspace
 
       - name: Prepare Executable
-        run: Copy-Item -Path "target\release\secret_png_gui.exe" -Destination "SecretPNG_Windows_x64.exe" -Force
+        run: Copy-Item -Path "target\release\secret_png_gui.exe" -Destination "Stow_Windows_x64.exe" -Force
 
       - name: Upload Windows Asset to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ github.event.inputs.tag_name }}"
-          files: SecretPNG_Windows_x64.exe
+          files: Stow_Windows_x64.exe
