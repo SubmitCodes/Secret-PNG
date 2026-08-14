@@ -141,7 +141,6 @@ pub struct StowApp {
     last_sanitize_report: Option<SanitizeReport>,
 }
 
-
 impl Default for StowApp {
     fn default() -> Self {
         let (tx, rx) = unbounded();
@@ -352,8 +351,8 @@ impl StowApp {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             let tabs = [
-                (ActiveTab::Embed, "Embed Video"),
-                (ActiveTab::Extract, "Extract Video"),
+                (ActiveTab::Embed, "Embed File"),
+                (ActiveTab::Extract, "Extract File"),
                 (ActiveTab::InspectSanitize, "Inspect & Clean"),
             ];
 
@@ -570,7 +569,7 @@ impl StowApp {
 
             ui.add_space(10.0);
 
-            // 2. Secret Video Payload Selector
+            // 2. Secret File to Conceal
             egui::Frame::none()
                 .fill(card_bg)
                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -579,13 +578,13 @@ impl StowApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Video File")
+                            RichText::new("Secret File to Conceal")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let browse_btn = Button::new(RichText::new("Browse Video...").size(13.0))
+                            let browse_btn = Button::new(RichText::new("Browse File...").size(13.0))
                                 .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
                                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -594,8 +593,8 @@ impl StowApp {
                             if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter(
-                                        "Video Files",
-                                        &["mp4", "mkv", "mov", "webm", "avi", "flv", "wmv", "ts", "zip", "bin", "*"],
+                                        "All Files (*.*)",
+                                        &["*"],
                                     )
                                     .pick_file()
                                 {
@@ -628,7 +627,7 @@ impl StowApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Select any video file (MP4, MKV, MOV, WebM, 4K movies).")
+                            RichText::new("Select any file to conceal (videos, archives, documents, data, any size).")
                                 .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
@@ -712,7 +711,7 @@ impl StowApp {
             let btn_text = if is_busy {
                 "Processing Carrier..."
             } else {
-                "Embed Video into Image"
+                "Embed File into Image"
             };
 
             let embed_btn = Button::new(
@@ -759,7 +758,7 @@ impl StowApp {
                         ui.add_space(4.0);
                         ui.label(format!("• Carrier Output: {}", self.embed_output_path.as_ref().unwrap().display()));
                         ui.label(format!("• Cover Image Size: {}", Self::format_bytes(report.host_image_size)));
-                        ui.label(format!("• Video Payload Size: {}", Self::format_bytes(report.payload_size)));
+                        ui.label(format!("• Hidden File Size: {}", Self::format_bytes(report.payload_size)));
                         ui.label(format!("• Total File Size: {}", Self::format_bytes(report.total_carrier_size)));
                         ui.label(format!("• Checksum (BLAKE3): {}", report.blake3_hex));
                         ui.label(format!("• Time Elapsed: {:.2}s", report.elapsed_millis as f64 / 1000.0));
@@ -844,7 +843,7 @@ impl StowApp {
                                             self.extract_output_path = Some(parent.join(&meta.1.original_filename));
                                             self.status_banner = Some((
                                                 format!(
-                                                    "Carrier payload found! Embedded file: '{}' ({})",
+                                                    "Carrier payload found! Concealed file: '{}' ({})",
                                                     meta.1.original_filename,
                                                     Self::format_bytes(meta.1.original_file_size)
                                                 ),
@@ -890,7 +889,7 @@ impl StowApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Choose an image file that contains an embedded video.")
+                            RichText::new("Choose an image file that contains an embedded file.")
                                 .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
@@ -907,14 +906,14 @@ impl StowApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("Detected Video Payload")
+                            RichText::new("Detected Concealed File")
                                 .size(15.0)
                                 .color(accent)
                                 .strong(),
                         );
                         ui.add_space(4.0);
                         ui.label(format!("• Original Filename: {}", meta.original_filename));
-                        ui.label(format!("• Video Size: {}", Self::format_bytes(meta.original_file_size)));
+                        ui.label(format!("• File Size: {}", Self::format_bytes(meta.original_file_size)));
                         ui.label(format!(
                             "• Protection: {}",
                             if meta.is_encrypted {
@@ -961,7 +960,7 @@ impl StowApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Save Extracted Video As:").strong());
+                            ui.label(RichText::new("Save Extracted File As:").strong());
                             if let Some(ref p) = self.extract_output_path {
                                 ui.label(
                                     RichText::new(p.display().to_string())
@@ -997,9 +996,9 @@ impl StowApp {
                     && (!is_encrypted || !self.extract_password.is_empty());
 
                 let btn_text = if is_busy {
-                    "Extracting Video..."
+                    "Extracting File..."
                 } else {
-                    "Extract Video from Image"
+                    "Extract File from Image"
                 };
 
                 let extract_btn = Button::new(
@@ -1127,7 +1126,7 @@ impl StowApp {
                                         }
                                         Err(e) => {
                                             self.inspect_inspected_meta = None;
-                                            self.status_banner = Some((format!("No hidden video found: {}", e), false));
+                                            self.status_banner = Some((format!("No hidden file found: {}", e), false));
                                         }
                                     }
                                 }
@@ -1157,8 +1156,8 @@ impl StowApp {
                                 .strong(),
                         );
                         ui.add_space(4.0);
-                        ui.label(format!("• Original Video: {}", meta.original_filename));
-                        ui.label(format!("• Video Size: {}", Self::format_bytes(meta.original_file_size)));
+                        ui.label(format!("• Original File: {}", meta.original_filename));
+                        ui.label(format!("• File Size: {}", Self::format_bytes(meta.original_file_size)));
                         ui.label(format!("• Format: {}", meta.host_image_format));
                     });
 
@@ -1171,13 +1170,13 @@ impl StowApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("Remove Embedded Video")
+                            RichText::new("Remove Concealed File")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.add_space(6.0);
-                        ui.label("This will strip the embedded video, restoring the original untouched cover image.");
+                        ui.label("This will strip the hidden file, restoring the original untouched cover image.");
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
@@ -1202,7 +1201,7 @@ impl StowApp {
                         ui.add_space(12.0);
                         let can_sanitize = !is_busy && self.inspect_path.is_some() && self.sanitize_output_path.is_some();
                         let sanitize_btn = Button::new(
-                            RichText::new("Remove Hidden Video")
+                            RichText::new("Remove Hidden File")
                                 .size(15.0)
                                 .color(if can_sanitize { Color32::WHITE } else { Color32::GRAY })
                                 .strong(),

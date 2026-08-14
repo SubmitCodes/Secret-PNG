@@ -5,8 +5,8 @@
 <h1 align="center">Stow</h1>
 
 <p align="center">
-  <b>High-speed steganographic video concealer and extractor with zero size limits.</b><br/>
-  Embed multi-gigabyte videos, movies, and archives into everyday images without breaking their viewability.
+  <b>High-speed steganographic file concealer and extractor with zero size limits.</b><br/>
+  Embed multi-gigabyte files, archives, videos, and documents into everyday images without breaking their viewability.
 </p>
 
 <p align="center">
@@ -45,28 +45,28 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 
 ## 📖 How to Use
 
-### 1. 📦 Embed Video into Image (Conceal)
+### 1. 📦 Embed File into Image (Conceal)
 1. Open **Stow** and stay on the **Embed Video** tab.
 2. Click **Browse Image...** to pick any cover picture (`.png`, `.jpg`, `.webp`, `.bmp`, `.gif`).
 3. Click **Browse Video...** to select your video or media file (`.mp4`, `.mkv`, `.mov`, `.zip`, etc.).
 4. *(Optional)* Check **Protect with a Password** and enter a password to encrypt your video with 256-bit ChaCha20-Poly1305.
-5. Click **Embed Video into Image**. Your new carrier image is created and viewable in any photo viewer!
+5. Click **Embed File into Image**. Your new carrier image is created and viewable in any photo viewer!
 
 ---
 
-### 2. 🔓 Extract Video from Image (Restore)
+### 2. 🔓 Extract File from Image (Restore)
 1. Switch to the **Extract Video** tab.
 2. Click **Browse Image...** and select the carrier image.
 3. Stow automatically inspects the image in milliseconds and reveals the embedded video details.
 4. *(If password-protected)* Enter the password.
-5. Click **Extract Video from Image**. Your video will be extracted with full BLAKE3 checksum verification!
+5. Click **Extract File from Image**. Your video will be extracted with full BLAKE3 checksum verification!
 
 ---
 
 ### 3. 🧹 Inspect & Clean Image (Remove Hidden Payload)
 1. Switch to the **Inspect & Clean** tab.
 2. Select any carrier image to view its internal geometry and size breakdown.
-3. Click **Remove Embedded Video** to strip the hidden payload and restore the original pristine cover photo.
+3. Click **Remove Concealed File** to strip the hidden payload and restore the original pristine cover photo.
 
 ---
 
