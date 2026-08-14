@@ -1,0 +1,22 @@
+[package]
+name = "secret_png_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-performance streaming engine for embedding arbitrary videos into host images without breaking viewability."
+
+[dependencies]
+crc32fast = { workspace = true }
+blake3 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+argon2 = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+byteorder = { workspace = true }
+image = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

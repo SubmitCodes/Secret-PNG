@@ -1,0 +1,12 @@
+[package]
+name = "secret_png_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Command-line tool for embedding and extracting video payloads inside carrier images."
+
+[dependencies]
+secret_png_core = { path = "../secret_png_core" }
+clap = { workspace = true }
+indicatif = { workspace = true }

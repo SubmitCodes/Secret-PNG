@@ -1,0 +1,15 @@
+[package]
+name = "secret_png_gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Cross-platform Desktop and Mobile GUI application for Secret PNG carrier embedding and extraction."
+
+[dependencies]
+secret_png_core = { path = "../secret_png_core" }
+eframe = { workspace = true }
+egui = { workspace = true }
+rfd = { workspace = true }
+crossbeam-channel = { workspace = true }
+image = { workspace = true }
