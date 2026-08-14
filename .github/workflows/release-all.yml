@@ -37,17 +37,69 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
+
       - name: Build Universal macOS Binary
         run: |
           cargo build --release --target x86_64-apple-darwin --bin secret_png_gui
           cargo build --release --target aarch64-apple-darwin --bin secret_png_gui
           lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
           chmod +x Stow_macOS_universal
-      - name: Save macOS Binary
+
+      - name: Generate macOS .icns Icon & Package Stow.app
+        run: |
+          mkdir -p Stow.iconset
+          sips -z 16 16     Stow.png --out Stow.iconset/icon_16x16.png
+          sips -z 32 32     Stow.png --out Stow.iconset/icon_16x16@2x.png
+          sips -z 32 32     Stow.png --out Stow.iconset/icon_32x32.png
+          sips -z 64 64     Stow.png --out Stow.iconset/icon_32x32@2x.png
+          sips -z 128 128   Stow.png --out Stow.iconset/icon_128x128.png
+          sips -z 256 256   Stow.png --out Stow.iconset/icon_128x128@2x.png
+          sips -z 256 256   Stow.png --out Stow.iconset/icon_256x256.png
+          sips -z 512 512   Stow.png --out Stow.iconset/icon_256x256@2x.png
+          sips -z 512 512   Stow.png --out Stow.iconset/icon_512x512.png
+          sips -z 1024 1024 Stow.png --out Stow.iconset/icon_512x512@2x.png
+          iconutil -c icns Stow.iconset -o Stow.icns
+
+          mkdir -p Stow.app/Contents/MacOS
+          mkdir -p Stow.app/Contents/Resources
+          cp Stow.icns Stow.app/Contents/Resources/Stow.icns
+          cp Stow_macOS_universal Stow.app/Contents/MacOS/Stow
+          chmod +x Stow.app/Contents/MacOS/Stow
+
+          cat << 'EOF' > Stow.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>Stow</string>
+              <key>CFBundleIconFile</key>
+              <string>Stow.icns</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.submitcodes.stow</string>
+              <key>CFBundleName</key>
+              <string>Stow</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          zip -r Stow_macOS.zip Stow.app
+
+      - name: Save macOS Assets
         uses: actions/upload-artifact@v4
         with:
-          name: macos-binary
-          path: Stow_macOS_universal
+          name: macos-assets
+          path: |
+            Stow_macOS.zip
+            Stow_macOS_universal
 
   publish-all:
     name: Package & Publish All Platforms
@@ -62,10 +114,10 @@ jobs:
           name: linux-binary
           path: ./
 
-      - name: Download macOS Binary
+      - name: Download macOS Assets
         uses: actions/download-artifact@v4
         with:
-          name: macos-binary
+          name: macos-assets
           path: ./
 
       - name: Prepare Assets
@@ -89,11 +141,13 @@ jobs:
 
             ### 🚀 Direct Downloads:
             - **🪟 Windows (Standalone .exe)**: [`Stow_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Windows_x64.exe)
-            - **🍎 macOS (Universal Apple Silicon + Intel)**: [`Stow_macOS_universal`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS_universal)
+            - **🍎 macOS (App Bundle with Icon)**: [`Stow_macOS.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS.zip) *(Unzip & double-click `Stow.app`)*
+            - **🍎 macOS (Universal Binary)**: [`Stow_macOS_universal`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS_universal)
             - **🐧 Linux (64-bit)**: [`Stow_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Linux_x86_64)
             - **📱 Android (APK)**: [`Stow_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Android.apk)
           files: |
             Stow_Windows_x64.exe
+            Stow_macOS.zip
             Stow_macOS_universal
             Stow_Linux_x86_64
             Stow_Android.apk

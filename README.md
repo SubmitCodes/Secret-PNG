@@ -36,8 +36,9 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 
 | Platform | Download File | Description |
 | :--- | :--- | :--- |
-| **🪟 Windows (64-bit)** | `Stow_Windows_x64.exe` | Standalone `.exe` (No installation or unzipping needed). |
-| **🍎 macOS (Universal)** | `Stow_macOS_universal` | Universal binary for both Apple Silicon (M1/M2/M3) and Intel Macs. |
+| **🪟 Windows (64-bit)** | `Stow_Windows_x64.exe` | Standalone `.exe` with embedded icon (No installation needed). |
+| **🍎 macOS (App Bundle)** | `Stow_macOS.zip` | Full macOS `Stow.app` with native `.icns` icon (Apple Silicon + Intel). |
+| **🍎 macOS (Universal Binary)** | `Stow_macOS_universal` | Standalone universal command-line / desktop binary. |
 | **🐧 Linux (64-bit)** | `Stow_Linux_x86_64` | Standalone Linux desktop binary. |
 | **📱 Android (APK)** | `Stow_Android.apk` | Native Android application. |
 
