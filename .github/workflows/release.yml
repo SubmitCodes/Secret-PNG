@@ -21,25 +21,19 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-msvc
+          targets: x86_64-unknown-linux-gnu
 
-      # 2. Build Linux
+      # 2. Build Linux Binaries
       - name: Install Linux Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq pkg-config libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev zip
+          sudo apt-get install -y -qq pkg-config libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
 
       - name: Build Linux Release
         run: |
           cargo build --release --workspace
-          mkdir -p release_assets/linux
-          cp target/release/secret_png_gui release_assets/linux/
-          cp target/release/secret_png_cli release_assets/linux/
-          cp install_linux.sh release_assets/linux/
-          cp SecretPNG.desktop release_assets/linux/
-          cd release_assets/linux
-          tar -czvf ../../SecretPNG_v1.0.0_Linux_x86_64.tar.gz *
-          cd ../..
+          cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
+          chmod +x ./SecretPNG_Linux_x86_64
 
       # 3. Build Android APK
       - name: Set up Java 17
@@ -56,20 +50,12 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk ../SecretPNG_v1.0.0_Android.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../SecretPNG_Android.apk
 
-      # 4. Package Windows Binaries from dist/windows
-      - name: Package Windows Binaries
+      # 4. Copy Standalone Windows Executable
+      - name: Copy Windows Standalone Executable
         run: |
-          mkdir -p release_assets/windows
-          cp dist/windows/SecretPNG_GUI.exe release_assets/windows/
-          cp dist/windows/secret-png.exe release_assets/windows/
-          cp dist/windows/secret_png_ffi.dll release_assets/windows/
-          cp Launch_SecretPNG_Windows.vbs release_assets/windows/
-          cp Launch_SecretPNG_Windows.cmd release_assets/windows/
-          cd release_assets/windows
-          zip -r ../../SecretPNG_v1.0.0_Windows_x64.zip *
-          cd ../..
+          cp dist/windows/SecretPNG_GUI.exe ./SecretPNG_Windows_x64.exe
 
       # 5. Create GitHub Release
       - name: Publish GitHub Release
@@ -84,10 +70,10 @@ jobs:
 
             ---
 
-            ### 📦 Download Assets:
-            - **🪟 Windows (64-bit)**: [`SecretPNG_v1.0.0_Windows_x64.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_v1.0.0_Windows_x64.zip)
-            - **📱 Android (APK)**: [`SecretPNG_v1.0.0_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_v1.0.0_Android.apk)
-            - **🐧 Linux (64-bit)**: [`SecretPNG_v1.0.0_Linux_x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_v1.0.0_Linux_x86_64.tar.gz)
+            ### 📦 Direct Downloads:
+            - **🪟 Windows (Standalone .exe)**: [`SecretPNG_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_Windows_x64.exe) *(No installation or unzipping needed! Just download & double click)*
+            - **📱 Android (APK)**: [`SecretPNG_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_Android.apk)
+            - **🐧 Linux (64-bit)**: [`SecretPNG_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SecretPNG_Linux_x86_64)
 
             ---
 
@@ -98,6 +84,6 @@ jobs:
             - **🚀 Native Performance**: 1.3+ GB/s throughput with minimal RAM usage (< 15 MB).
             - **🛡️ Integrity Verification**: Bit-perfect restoration verified by 256-bit BLAKE3 hash.
           files: |
-            SecretPNG_v1.0.0_Windows_x64.zip
-            SecretPNG_v1.0.0_Android.apk
-            SecretPNG_v1.0.0_Linux_x86_64.tar.gz
+            SecretPNG_Windows_x64.exe
+            SecretPNG_Android.apk
+            SecretPNG_Linux_x86_64
