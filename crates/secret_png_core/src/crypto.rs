@@ -52,7 +52,6 @@ impl StreamEncryptor {
     /// Encrypt next chunk and write [4-byte len | ciphertext + tag] to writer
     pub fn encrypt_chunk<W: Write>(&mut self, plaintext: &[u8], writer: &mut W) -> Result<usize> {
         let mut nonce_bytes = self.base_nonce;
-        // Nonce is 12 bytes: first 4 bytes base, last 8 bytes chunk index
         BigEndian::write_u64(&mut nonce_bytes[4..12], self.chunk_index);
         self.chunk_index += 1;
 
@@ -117,7 +116,7 @@ impl StreamDecryptor {
         }
 
         let chunk_len = BigEndian::read_u32(&len_buf) as usize;
-        // Limit max chunk length for safety (chunk_size + 16-byte tag + reasonable headroom)
+        // Limit max chunk length for safety (1MB chunk + 16-byte tag + reasonable headroom)
         if chunk_len > (DEFAULT_CHUNK_SIZE * 2) {
             return Err(SecretPngError::CorruptedMetadata("Corrupted encrypted chunk length".into()));
         }
@@ -139,7 +138,7 @@ impl StreamDecryptor {
     }
 }
 
-// Simple hex helper module
+// Fast hex helper module
 mod hex {
     pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
         let bytes = data.as_ref();

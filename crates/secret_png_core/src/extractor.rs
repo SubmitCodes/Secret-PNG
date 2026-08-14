@@ -1,7 +1,9 @@
 use crate::crypto::StreamDecryptor;
 use crate::embedder::{ProgressCallback, ProgressUpdate};
 use crate::error::{Result, SecretPngError};
-use crate::protocol::{PayloadMetadata, TrailerIndex, DEFAULT_CHUNK_SIZE, TRAILER_SIZE};
+use crate::protocol::{
+    PayloadMetadata, TrailerIndex, DEFAULT_CHUNK_SIZE, PNG_IEND_CHUNK, TRAILER_SIZE,
+};
 use crc32fast::Hasher as Crc32Hasher;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -25,29 +27,51 @@ pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex,
     let mut file = File::open(carrier_path)?;
     let total_len = file.metadata()?.len();
 
-    if total_len < TRAILER_SIZE as u64 {
+    if total_len < (TRAILER_SIZE + 12) as u64 {
         return Err(SecretPngError::NoCarrierDataFound);
     }
 
-    // 1. Read last 64 bytes for trailer
-    file.seek(SeekFrom::End(-(TRAILER_SIZE as i64)))?;
     let mut trailer_buf = [0u8; TRAILER_SIZE];
-    file.read_exact(&mut trailer_buf)?;
 
-    let trailer = TrailerIndex::from_bytes(&trailer_buf)?;
-
-    // 2. Validate geometry
-    let expected_metadata_end = trailer.metadata_offset + (trailer.metadata_length as u64);
-    if expected_metadata_end + (TRAILER_SIZE as u64) != total_len {
-        return Err(SecretPngError::CorruptedTrailer);
+    // 1. Check if file ends with PNG IEND chunk (PNG chunk mode)
+    let mut ends_with_iend = false;
+    if total_len >= 88 {
+        file.seek(SeekFrom::End(-12))?;
+        let mut iend_check = [0u8; 12];
+        if file.read_exact(&mut iend_check).is_ok() && iend_check == PNG_IEND_CHUNK {
+            ends_with_iend = true;
+        }
     }
 
-    // 3. Read metadata block
+    let trailer_res = if ends_with_iend {
+        // Trailer is at EOF - 12 (IEND) - 4 (chunk CRC) - 64 (trailer data) = EOF - 80
+        file.seek(SeekFrom::End(-80))?;
+        file.read_exact(&mut trailer_buf)?;
+        TrailerIndex::from_bytes(&trailer_buf)
+    } else {
+        // Standard EOF trailer mode
+        file.seek(SeekFrom::End(-(TRAILER_SIZE as i64)))?;
+        file.read_exact(&mut trailer_buf)?;
+        TrailerIndex::from_bytes(&trailer_buf)
+    };
+
+    let trailer = match trailer_res {
+        Ok(t) => t,
+        Err(_) if ends_with_iend => {
+            // Fallback to EOF - 64
+            file.seek(SeekFrom::End(-(TRAILER_SIZE as i64)))?;
+            file.read_exact(&mut trailer_buf)?;
+            TrailerIndex::from_bytes(&trailer_buf)?
+        }
+        Err(e) => return Err(e),
+    };
+
+    // 2. Read metadata block
     file.seek(SeekFrom::Start(trailer.metadata_offset))?;
     let mut metadata_buf = vec![0u8; trailer.metadata_length as usize];
     file.read_exact(&mut metadata_buf)?;
 
-    // 4. Verify metadata CRC32
+    // 3. Verify metadata CRC32
     let mut crc_hasher = Crc32Hasher::new();
     crc_hasher.update(&metadata_buf);
     let calculated_crc = crc_hasher.finalize();
@@ -55,7 +79,7 @@ pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex,
         return Err(SecretPngError::CorruptedMetadata("Metadata CRC32 mismatch".into()));
     }
 
-    // 5. Deserialize metadata JSON
+    // 4. Deserialize metadata JSON
     let metadata: PayloadMetadata = serde_json::from_slice(&metadata_buf)
         .map_err(|e| SecretPngError::CorruptedMetadata(format!("JSON parsing error: {}", e)))?;
 
@@ -109,16 +133,16 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
     let mut last_progress_bytes = 0u64;
 
     let carrier_file = File::open(carrier_path)?;
-    let mut carrier_reader = BufReader::with_capacity(128 * 1024, carrier_file);
+    let mut carrier_reader = BufReader::with_capacity(DEFAULT_CHUNK_SIZE, carrier_file);
     carrier_reader.seek(SeekFrom::Start(trailer.payload_offset))?;
 
-    // Create target output file
+    // Create target output file with 1MB buffer
     let out_file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .open(&out_path)?;
-    let mut out_writer = BufWriter::with_capacity(128 * 1024, out_file);
+    let mut out_writer = BufWriter::with_capacity(DEFAULT_CHUNK_SIZE, out_file);
 
     let mut blake3_hasher = blake3::Hasher::new();
     let mut crc_hasher = Crc32Hasher::new();
@@ -143,7 +167,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
                 total_processed_bytes += plaintext.len() as u64;
 
                 if let Some(ref cb) = progress {
-                    if last_progress_time.elapsed().as_millis() >= 80 || total_processed_bytes >= total_expected_bytes {
+                    if last_progress_time.elapsed().as_millis() >= 60 || total_processed_bytes >= total_expected_bytes {
                         let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
                         let speed = if elapsed_sec > 0.0 {
                             (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
@@ -182,7 +206,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
                 total_processed_bytes += n as u64;
 
                 if let Some(ref cb) = progress {
-                    if last_progress_time.elapsed().as_millis() >= 80 || total_processed_bytes >= total_expected_bytes {
+                    if last_progress_time.elapsed().as_millis() >= 60 || total_processed_bytes >= total_expected_bytes {
                         let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
                         let speed = if elapsed_sec > 0.0 {
                             (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec

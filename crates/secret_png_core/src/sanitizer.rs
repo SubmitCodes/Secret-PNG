@@ -1,5 +1,6 @@
 use crate::error::{Result, SecretPngError};
 use crate::extractor::inspect_carrier;
+use crate::protocol::{TrailerIndex, PNG_IEND_CHUNK};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -23,17 +24,24 @@ pub fn strip_payload_to_file<P1: AsRef<Path>, P2: AsRef<Path>>(
     let carrier_len = std::fs::metadata(carrier_path)?.len();
 
     let in_file = File::open(carrier_path)?;
-    let mut reader = BufReader::with_capacity(128 * 1024, in_file);
+    let mut reader = BufReader::with_capacity(1024 * 1024, in_file);
 
     let out_file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .open(output_path)?;
-    let mut writer = BufWriter::with_capacity(128 * 1024, out_file);
+    let mut writer = BufWriter::with_capacity(1024 * 1024, out_file);
 
-    let mut remaining = trailer.host_image_size;
-    let mut buffer = vec![0u8; 64 * 1024];
+    let is_png_chunk = (trailer.flags & TrailerIndex::FLAG_PNG_CHUNK) != 0;
+    let bytes_to_copy = if is_png_chunk {
+        trailer.host_image_size.saturating_sub(12)
+    } else {
+        trailer.host_image_size
+    };
+
+    let mut remaining = bytes_to_copy;
+    let mut buffer = vec![0u8; 1024 * 1024];
 
     while remaining > 0 {
         let to_read = std::cmp::min(buffer.len() as u64, remaining) as usize;
@@ -45,11 +53,15 @@ pub fn strip_payload_to_file<P1: AsRef<Path>, P2: AsRef<Path>>(
         remaining -= n as u64;
     }
 
+    if is_png_chunk {
+        writer.write_all(&PNG_IEND_CHUNK)?;
+    }
+
     writer.flush()?;
 
     Ok(SanitizeReport {
         original_host_image_size: trailer.host_image_size,
-        payload_bytes_removed: carrier_len - trailer.host_image_size,
+        payload_bytes_removed: carrier_len.saturating_sub(trailer.host_image_size),
         host_image_format: metadata.host_image_format,
     })
 }
@@ -60,12 +72,22 @@ pub fn strip_payload_in_place<P: AsRef<Path>>(carrier_path: P) -> Result<Sanitiz
     let (trailer, metadata) = inspect_carrier(carrier_path)?;
     let carrier_len = std::fs::metadata(carrier_path)?.len();
 
-    let file = OpenOptions::new().write(true).open(carrier_path)?;
-    file.set_len(trailer.host_image_size)?;
+    let is_png_chunk = (trailer.flags & TrailerIndex::FLAG_PNG_CHUNK) != 0;
+
+    if is_png_chunk {
+        // Need to rewrite IEND at host_image_size - 12
+        let mut file = OpenOptions::new().read(true).write(true).open(carrier_path)?;
+        file.set_len(trailer.host_image_size)?;
+        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(trailer.host_image_size - 12))?;
+        file.write_all(&PNG_IEND_CHUNK)?;
+    } else {
+        let file = OpenOptions::new().write(true).open(carrier_path)?;
+        file.set_len(trailer.host_image_size)?;
+    }
 
     Ok(SanitizeReport {
         original_host_image_size: trailer.host_image_size,
-        payload_bytes_removed: carrier_len - trailer.host_image_size,
+        payload_bytes_removed: carrier_len.saturating_sub(trailer.host_image_size),
         host_image_format: metadata.host_image_format,
     })
 }

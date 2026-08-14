@@ -152,11 +152,34 @@ object SecretPngEngine {
                     throw IllegalStateException("File too small to contain carrier metadata")
                 }
 
-                raf.seek(length - Trailer.TRAILER_SIZE)
-                val trailerBytes = ByteArray(Trailer.TRAILER_SIZE)
-                raf.readFully(trailerBytes)
+                // Check if file ends with PNG IEND chunk
+                var endsWithIend = false
+                if (length >= 88) {
+                    raf.seek(length - 12)
+                    val iendBytes = ByteArray(12)
+                    raf.readFully(iendBytes)
+                    // PNG IEND: 00 00 00 00 49 45 4E 44 AE 42 60 82
+                    if (iendBytes[4] == 0x49.toByte() && iendBytes[5] == 0x45.toByte() && iendBytes[6] == 0x4E.toByte() && iendBytes[7] == 0x44.toByte()) {
+                        endsWithIend = true
+                    }
+                }
 
-                val trailer = Trailer.fromBytes(trailerBytes)
+                val trailerBytes = ByteArray(Trailer.TRAILER_SIZE)
+                val trailer = try {
+                    if (endsWithIend) {
+                        raf.seek(length - 80)
+                        raf.readFully(trailerBytes)
+                        Trailer.fromBytes(trailerBytes)
+                    } else {
+                        raf.seek(length - Trailer.TRAILER_SIZE)
+                        raf.readFully(trailerBytes)
+                        Trailer.fromBytes(trailerBytes)
+                    }
+                } catch (e: Exception) {
+                    raf.seek(length - Trailer.TRAILER_SIZE)
+                    raf.readFully(trailerBytes)
+                    Trailer.fromBytes(trailerBytes)
+                }
 
                 raf.seek(trailer.metadataOffset)
                 val metaBytes = ByteArray(trailer.metadataLength)
