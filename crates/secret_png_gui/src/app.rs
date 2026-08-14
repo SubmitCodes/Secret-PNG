@@ -141,7 +141,6 @@ pub struct StowApp {
     last_sanitize_report: Option<SanitizeReport>,
 }
 
-pub type SecretPngApp = StowApp;
 
 impl Default for StowApp {
     fn default() -> Self {
