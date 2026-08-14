@@ -1,5 +1,5 @@
 [package]
-name = "secret_png_gui"
+name = "stow_gui"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 description = "Cross-platform Desktop and Mobile GUI application for Stow carrier embedding and extraction."
 
 [dependencies]
-secret_png_core = { path = "../secret_png_core" }
+stow_core = { path = "../stow_core" }
 eframe = { workspace = true }
 egui = { workspace = true }
 rfd = { workspace = true }

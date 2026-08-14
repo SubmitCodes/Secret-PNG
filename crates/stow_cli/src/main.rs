@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use secret_png_core::{
+use stow_core::{
     embed_files, extract_payload, inspect_carrier, strip_payload_in_place,
     strip_payload_to_file, EmbedOptions, ProgressUpdate,
 };

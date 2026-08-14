@@ -1,5 +1,5 @@
 [package]
-name = "secret_png_ffi"
+name = "stow_ffi"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,6 +10,6 @@ description = "C-ABI and Foreign Function Interface (FFI) bindings for mobile (A
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-secret_png_core = { path = "../secret_png_core" }
+stow_core = { path = "../stow_core" }
 serde_json = { workspace = true }
 libc = "0.2"

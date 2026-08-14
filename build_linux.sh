@@ -15,8 +15,8 @@ cargo build --release --workspace
 
 echo "Packaging Linux release binaries into dist/linux/..."
 mkdir -p dist/linux
-cp target/release/secret_png_gui dist/linux/Stow_Linux_x86_64
-cp target/release/secret_png_cli dist/linux/stow-cli
+cp target/release/stow_gui dist/linux/Stow_Linux_x86_64
+cp target/release/stow_cli dist/linux/stow-cli
 chmod +x dist/linux/Stow_Linux_x86_64 dist/linux/stow-cli
 
 echo "=== Build Complete! ==="

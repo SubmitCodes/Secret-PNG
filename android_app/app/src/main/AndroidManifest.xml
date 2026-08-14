@@ -8,7 +8,7 @@
         android:roundIcon="@drawable/stow_logo"
         android:supportsRtl="true"
         android:windowSoftInputMode="adjustResize"
-        android:theme="@style/Theme.SecretPNG">
+        android:theme="@style/Theme.Stow">
         <activity
             android:name=".MainActivity"
             android:exported="true">

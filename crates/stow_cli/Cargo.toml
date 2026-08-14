@@ -1,5 +1,5 @@
 [package]
-name = "secret_png_cli"
+name = "stow_cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,6 +7,6 @@ license.workspace = true
 description = "Command-line tool for embedding and extracting video payloads inside carrier images."
 
 [dependencies]
-secret_png_core = { path = "../secret_png_core" }
+stow_core = { path = "../stow_core" }
 clap = { workspace = true }
 indicatif = { workspace = true }

@@ -27,7 +27,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-binary
-          path: target/release/secret_png_gui
+          path: target/release/stow_gui
 
   build-macos:
     name: Build macOS
@@ -40,9 +40,9 @@ jobs:
 
       - name: Build Universal macOS Binary
         run: |
-          cargo build --release --target x86_64-apple-darwin --bin secret_png_gui
-          cargo build --release --target aarch64-apple-darwin --bin secret_png_gui
-          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
+          cargo build --release --target x86_64-apple-darwin --bin stow_gui
+          cargo build --release --target aarch64-apple-darwin --bin stow_gui
+          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/stow_gui target/aarch64-apple-darwin/release/stow_gui
           chmod +x Stow_macOS_universal
 
       - name: Generate macOS .icns Icon & Package Stow_macOS.dmg
@@ -123,7 +123,7 @@ jobs:
 
       - name: Prepare Assets
         run: |
-          mv secret_png_gui Stow_Linux_x86_64
+          mv stow_gui Stow_Linux_x86_64
           chmod +x Stow_Linux_x86_64
           cp dist/windows/Stow.exe ./Stow_Windows_x64.exe
           cp dist/android/Stow.apk ./Stow_Android.apk

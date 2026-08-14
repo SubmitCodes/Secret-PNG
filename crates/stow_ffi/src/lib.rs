@@ -1,5 +1,5 @@
 use libc::c_char;
-use secret_png_core::{
+use stow_core::{
     embed_files, extract_payload, has_carrier_payload, inspect_carrier,
     strip_payload_to_file, EmbedOptions, ProgressUpdate,
 };

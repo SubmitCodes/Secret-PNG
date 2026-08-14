@@ -3,7 +3,7 @@ use egui::{
     vec2, Align, Button, Color32, ComboBox, Layout, Margin, RichText, Rounding, Stroke,
     TextureHandle, Ui,
 };
-use secret_png_core::{
+use stow_core::{
     embed_files, extract_payload, inspect_carrier, strip_payload_to_file, EmbedOptions,
     EmbedReport, ExtractionReport, PayloadMetadata, ProgressUpdate, SanitizeReport, TrailerIndex,
 };

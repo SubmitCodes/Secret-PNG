@@ -30,7 +30,7 @@ jobs:
       - name: Build Linux Release
         run: |
           cargo build --release --workspace
-          cp target/release/secret_png_gui ./Stow_Linux_x86_64
+          cp target/release/stow_gui ./Stow_Linux_x86_64
           chmod +x ./Stow_Linux_x86_64
 
       - name: Upload Linux Asset to GitHub Release

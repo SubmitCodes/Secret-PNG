@@ -1,5 +1,5 @@
 [package]
-name = "secret_png_core"
+name = "stow_core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,4 +1,4 @@
-use secret_png_core::{embed_files, extract_payload, inspect_carrier, EmbedOptions};
+use stow_core::{embed_files, extract_payload, inspect_carrier, EmbedOptions};
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;

@@ -4,14 +4,14 @@ set -e
 echo "=== Installing Stow on Linux ==="
 
 # Build release binaries if not already built
-if [ ! -f "target/release/secret_png_gui" ]; then
+if [ ! -f "target/release/stow_gui" ]; then
     echo "Compiling release binaries..."
     ./build_linux.sh
 fi
 
 echo "Installing binaries to /usr/local/bin..."
-sudo install -m 755 target/release/secret_png_gui /usr/local/bin/stow-gui
-sudo install -m 755 target/release/secret_png_cli /usr/local/bin/stow-cli
+sudo install -m 755 target/release/stow_gui /usr/local/bin/stow-gui
+sudo install -m 755 target/release/stow_cli /usr/local/bin/stow-cli
 
 # Install Icon
 if [ -d "/usr/share/icons/hicolor/512x512/apps" ]; then

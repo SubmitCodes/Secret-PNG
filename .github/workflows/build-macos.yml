@@ -26,9 +26,9 @@ jobs:
 
       - name: Build Universal macOS Binary
         run: |
-          cargo build --release --target x86_64-apple-darwin --bin secret_png_gui
-          cargo build --release --target aarch64-apple-darwin --bin secret_png_gui
-          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
+          cargo build --release --target x86_64-apple-darwin --bin stow_gui
+          cargo build --release --target aarch64-apple-darwin --bin stow_gui
+          lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/stow_gui target/aarch64-apple-darwin/release/stow_gui
           chmod +x Stow_macOS_universal
 
       - name: Generate macOS .icns Icon & Package Stow_macOS.dmg

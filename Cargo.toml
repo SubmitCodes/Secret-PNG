@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/secret_png_core",
-    "crates/secret_png_cli",
-    "crates/secret_png_gui",
-    "crates/secret_png_ffi",
+    "crates/stow_core",
+    "crates/stow_cli",
+    "crates/stow_gui",
+    "crates/stow_ffi",
 ]
 
 [workspace.package]
