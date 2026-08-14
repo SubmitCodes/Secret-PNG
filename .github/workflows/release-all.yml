@@ -1,0 +1,66 @@
+name: 🚀 Release All Platforms
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Version Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-all:
+    name: Build All & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Setup Rust
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      # 2. Build Linux Binary
+      - name: Install Linux GUI Libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
+
+      - name: Build Linux Release
+        run: |
+          cargo build --release --workspace
+          cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
+          chmod +x ./SecretPNG_Linux_x86_64
+
+      # 3. Setup Pre-built Windows & Android Assets from repository
+      - name: Copy Windows and Android Assets
+        run: |
+          cp dist/windows/SecretPNG_GUI.exe ./SecretPNG_Windows_x64.exe
+          cp dist/android/SecretPNG.apk ./SecretPNG_Android.apk
+
+      # 4. Upload All 3 Assets to GitHub Release
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ github.event.inputs.tag_name }}"
+          name: "Secret PNG ${{ github.event.inputs.tag_name }}"
+          body: |
+            # 🛡️ Secret PNG ${{ github.event.inputs.tag_name }}
+
+            High-speed steganographic video concealer and extractor.
+
+            ---
+
+            ### 📦 Direct Downloads:
+            - **🪟 Windows (Standalone .exe)**: [`SecretPNG_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Windows_x64.exe)
+            - **📱 Android (APK)**: [`SecretPNG_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Android.apk)
+            - **🐧 Linux (64-bit)**: [`SecretPNG_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/SecretPNG_Linux_x86_64)
+          files: |
+            SecretPNG_Windows_x64.exe
+            SecretPNG_Android.apk
+            SecretPNG_Linux_x86_64
