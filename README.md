@@ -46,7 +46,7 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 ## 📖 How to Use
 
 ### 1. 📦 Embed File into Image (Conceal)
-1. Open **Stow** and stay on the **Embed Video** tab.
+1. Open **Stow** and stay on the **Embed File** tab.
 2. Click **Browse Image...** to pick any cover picture (`.png`, `.jpg`, `.webp`, `.bmp`, `.gif`).
 3. Click **Browse File...** to select any file or media archive (`.mp4`, `.mkv`, `.mov`, `.zip`, etc.).
 4. *(Optional)* Check **Protect with a Password** and enter a password to encrypt your file with 256-bit ChaCha20-Poly1305.
@@ -55,7 +55,7 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 ---
 
 ### 2. 🔓 Extract File from Image (Restore)
-1. Switch to the **Extract Video** tab.
+1. Switch to the **Extract File** tab.
 2. Click **Browse Image...** and select the carrier image.
 3. Stow automatically inspects the image in milliseconds and reveals the concealed file details.
 4. *(If password-protected)* Enter the password.
