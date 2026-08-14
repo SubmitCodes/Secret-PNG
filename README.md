@@ -43,9 +43,36 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 
 ---
 
+## 📖 How to Use
+
+### 1. 📦 Embed Video into Image (Conceal)
+1. Open **Stow** and stay on the **Embed Video** tab.
+2. Click **Browse Image...** to pick any cover picture (`.png`, `.jpg`, `.webp`, `.bmp`, `.gif`).
+3. Click **Browse Video...** to select your video or media file (`.mp4`, `.mkv`, `.mov`, `.zip`, etc.).
+4. *(Optional)* Check **Protect with a Password** and enter a password to encrypt your video with 256-bit ChaCha20-Poly1305.
+5. Click **Embed Video into Image**. Your new carrier image is created and viewable in any photo viewer!
+
+---
+
+### 2. 🔓 Extract Video from Image (Restore)
+1. Switch to the **Extract Video** tab.
+2. Click **Browse Image...** and select the carrier image.
+3. Stow automatically inspects the image in milliseconds and reveals the embedded video details.
+4. *(If password-protected)* Enter the password.
+5. Click **Extract Video from Image**. Your video will be extracted with full BLAKE3 checksum verification!
+
+---
+
+### 3. 🧹 Inspect & Clean Image (Remove Hidden Payload)
+1. Switch to the **Inspect & Clean** tab.
+2. Select any carrier image to view its internal geometry and size breakdown.
+3. Click **Remove Embedded Video** to strip the hidden payload and restore the original pristine cover photo.
+
+---
+
 ## 🛠️ Building from Source
 
-### 1. Windows & Linux & macOS
+### 1. Windows, macOS & Linux
 Ensure you have [Rust](https://rustup.rs/) installed:
 ```bash
 cargo build --release --workspace
