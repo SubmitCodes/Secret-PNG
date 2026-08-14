@@ -540,6 +540,42 @@ impl SecretPngApp {
                     );
                     ui.add_space(6.0);
 
+                    // 4GB+ Tip for massive videos
+                    if let Some(ref payload_path) = self.embed_payload_path {
+                        if let Ok(meta) = std::fs::metadata(payload_path) {
+                            if meta.len() >= 3_800_000_000 {
+                                if let Some(ref host_path) = self.embed_host_path {
+                                    let ext = host_path
+                                        .extension()
+                                        .and_then(|e| e.to_str())
+                                        .unwrap_or("")
+                                        .to_lowercase();
+                                    if ext == "png" {
+                                        egui::Frame::none()
+                                            .fill(Color32::from_rgb(45, 30, 10))
+                                            .stroke(Stroke::new(1.0, Color32::from_rgb(245, 158, 11)))
+                                            .rounding(Rounding::same(6.0))
+                                            .inner_margin(Margin::same(8.0))
+                                            .show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(RichText::new("💡").size(16.0));
+                                                    ui.label(
+                                                        RichText::new(
+                                                            "PRO-TIP: For 4GB+ videos (like your 13.9 GB file), use a .jpg / .jpeg cover image! Standard Windows & Android PNG decoders have a 32-bit (4GB) limit for PNGs, whereas JPEG has zero size limits and opens instantly!",
+                                                        )
+                                                        .color(Color32::from_rgb(254, 240, 138))
+                                                        .size(12.0)
+                                                        .strong(),
+                                                    );
+                                                });
+                                            });
+                                        ui.add_space(6.0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Output file path
                     ui.horizontal(|ui| {
                         ui.label("Carrier Output:");
