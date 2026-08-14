@@ -191,7 +191,7 @@ object StowEngine {
                     isEncrypted = json.optBoolean("is_encrypted", false),
                     sha256Hex = json.optString("blake3_hex", json.optString("sha256_hex", "")),
                     crc32 = json.optLong("crc32", 0L),
-                    hostImageFormat = json.optString("host_image_format", "JPEG")
+                    hostImageFormat = json.optString("host_format", "JPEG")
                 )
             }
         } finally {
@@ -290,7 +290,7 @@ object StowEngine {
             put("crc32", crcFinal)
             put("timestamp_epoch_sec", System.currentTimeMillis() / 1000)
             put("is_encrypted", isEncrypted)
-            put("host_image_format", "JPEG")
+            put("host_format", "JPEG")
         }
 
         val metaBytes = metadataJson.toString().toByteArray(Charsets.UTF_8)

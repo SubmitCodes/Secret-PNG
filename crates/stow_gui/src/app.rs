@@ -4,8 +4,9 @@ use egui::{
     TextureHandle, Ui,
 };
 use stow_core::{
-    embed_files, extract_payload, inspect_carrier, strip_payload_to_file, EmbedOptions,
-    EmbedReport, ExtractionReport, PayloadMetadata, ProgressUpdate, SanitizeReport, TrailerIndex,
+    classify_host_carrier, embed_files, extract_payload, inspect_carrier, strip_payload_to_file,
+    EmbedOptions, EmbedReport, ExtractionReport, HostCategory, PayloadMetadata, ProgressUpdate,
+    SanitizeReport, TrailerIndex,
 };
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,6 +107,8 @@ pub struct StowApp {
 
     // Embed tab state
     embed_host_path: Option<PathBuf>,
+    embed_host_category: Option<HostCategory>,
+    embed_host_format: Option<String>,
     embed_payload_path: Option<PathBuf>,
     embed_output_path: Option<PathBuf>,
     embed_password: String,
@@ -124,7 +127,7 @@ pub struct StowApp {
     inspect_inspected_meta: Option<(TrailerIndex, PayloadMetadata)>,
     sanitize_output_path: Option<PathBuf>,
 
-    // Image preview caches
+    // Thumbnail cache for images
     host_thumbnail: Option<TextureHandle>,
     carrier_thumbnail: Option<TextureHandle>,
 
@@ -149,6 +152,8 @@ impl Default for StowApp {
             theme: AppTheme::CyberCyan,
             app_logo: None,
             embed_host_path: None,
+            embed_host_category: None,
+            embed_host_format: None,
             embed_payload_path: None,
             embed_output_path: None,
             embed_password: String::new(),
@@ -249,7 +254,7 @@ impl StowApp {
                         Ok(report) => {
                             self.status_banner = Some((
                                 format!(
-                                    "Successfully concealed '{}' into carrier image!",
+                                    "Successfully concealed '{}' into carrier!",
                                     report.original_file_name
                                 ),
                                 false,
@@ -288,7 +293,7 @@ impl StowApp {
                         Ok(report) => {
                             self.status_banner = Some((
                                 format!(
-                                    "Image cleaned! Removed {} of hidden payload.",
+                                    "Carrier cleaned! Removed {} of hidden payload.",
                                     Self::format_bytes(report.payload_bytes_removed)
                                 ),
                                 false,
@@ -304,15 +309,12 @@ impl StowApp {
         }
     }
 
-    // --- UI Renderers ---
-
     fn render_header(&mut self, ui: &mut Ui) {
         let accent = self.theme.accent();
 
         ui.horizontal(|ui| {
             ui.add_space(6.0);
 
-            // Render Stow Logo
             if let Some(ref logo) = self.app_logo {
                 ui.image((logo.id(), vec2(28.0, 28.0)));
                 ui.add_space(4.0);
@@ -325,12 +327,11 @@ impl StowApp {
                     .strong(),
             );
             ui.label(
-                RichText::new("v1.0")
+                RichText::new("Universal Stealth Carrier Engine")
                     .size(12.0)
                     .color(Color32::from_rgb(148, 163, 184)),
             );
 
-            // Theme selector on top right
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ComboBox::from_id_salt("theme_selector")
                     .selected_text(RichText::new(format!("🎨 {}", self.theme.name())).size(12.0).color(accent))
@@ -351,8 +352,8 @@ impl StowApp {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             let tabs = [
-                (ActiveTab::Embed, "Embed File"),
-                (ActiveTab::Extract, "Extract File"),
+                (ActiveTab::Embed, "Embed & Cloak"),
+                (ActiveTab::Extract, "Extract & Restore"),
                 (ActiveTab::InspectSanitize, "Inspect & Clean"),
             ];
 
@@ -379,7 +380,7 @@ impl StowApp {
                             self.theme.card_border()
                         },
                     ))
-                    .min_size(vec2(130.0, 34.0))
+                    .min_size(vec2(140.0, 34.0))
                     .rounding(Rounding::same(6.0));
 
                 if ui.add(btn).clicked() {
@@ -493,7 +494,7 @@ impl StowApp {
         let card_border = self.theme.card_border();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // 1. Host Cover Image Selector
+            // 1. Host Carrier Selector
             egui::Frame::none()
                 .fill(card_bg)
                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -502,13 +503,13 @@ impl StowApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Cover Image")
+                            RichText::new("Host Carrier (Cover File)")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let browse_btn = Button::new(RichText::new("Browse Image...").size(13.0))
+                            let browse_btn = Button::new(RichText::new("Browse Host...").size(13.0))
                                 .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
                                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -516,15 +517,24 @@ impl StowApp {
 
                             if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Image Files", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                                    .add_filter("All Supported Carriers", &["png", "jpg", "jpeg", "webp", "mp3", "wav", "flac", "mp4", "mkv", "mov", "pdf", "exe"])
+                                    .add_filter("Images (*.png, *.jpg, *.webp)", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                                    .add_filter("Audio (*.mp3, *.wav, *.flac)", &["mp3", "wav", "flac", "aac", "ogg", "m4a"])
+                                    .add_filter("Video (*.mp4, *.mkv, *.mov)", &["mp4", "mkv", "mov", "webm", "avi", "wmv"])
+                                    .add_filter("Documents (*.pdf)", &["pdf"])
+                                    .add_filter("Executables (*.exe, *.dll)", &["exe", "dll", "iso", "bin"])
+                                    .add_filter("All Files (*.*)", &["*"])
                                     .pick_file()
                                 {
+                                    let (cat, fmt, _, _) = classify_host_carrier(&path);
+                                    self.embed_host_category = Some(cat);
+                                    self.embed_host_format = Some(fmt);
                                     self.embed_host_path = Some(path.clone());
                                     self.host_thumbnail = Self::load_thumbnail(ctx, &path, "host_thumb");
                                     if self.embed_output_path.is_none() {
                                         let parent = path.parent().unwrap_or_else(|| Path::new("."));
                                         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("carrier");
-                                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+                                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
                                         self.embed_output_path = Some(parent.join(format!("{}_carrier.{}", stem, ext)));
                                     }
                                 }
@@ -540,11 +550,21 @@ impl StowApp {
                                 ui.add_space(10.0);
                             }
                             ui.vertical(|ui| {
-                                ui.label(
-                                    RichText::new(path.file_name().unwrap_or_default().to_string_lossy())
-                                        .color(accent)
-                                        .strong(),
-                                );
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(path.file_name().unwrap_or_default().to_string_lossy())
+                                            .color(accent)
+                                            .strong(),
+                                    );
+                                    if let Some(ref cat) = self.embed_host_category {
+                                        ui.label(
+                                            RichText::new(format!("[{}]", cat.icon()))
+                                                .color(Color32::from_rgb(52, 211, 153))
+                                                .size(12.0)
+                                                .strong(),
+                                        );
+                                    }
+                                });
                                 ui.label(
                                     RichText::new(format!("Path: {}", path.display()))
                                         .size(11.0)
@@ -561,7 +581,7 @@ impl StowApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Select any image (PNG, JPEG, WebP, GIF, BMP) to act as the visual cover.")
+                            RichText::new("Select any host carrier (Image, Song/Audio, Video, PDF, or Executable).")
                                 .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
@@ -578,13 +598,13 @@ impl StowApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Secret File to Conceal")
+                            RichText::new("Secret Payload File")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let browse_btn = Button::new(RichText::new("Browse File...").size(13.0))
+                            let browse_btn = Button::new(RichText::new("Browse Payload...").size(13.0))
                                 .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
                                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -592,10 +612,7 @@ impl StowApp {
 
                             if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter(
-                                        "All Files (*.*)",
-                                        &["*"],
-                                    )
+                                    .add_filter("All Files (*.*)", &["*"])
                                     .pick_file()
                                 {
                                     self.embed_payload_path = Some(path);
@@ -627,7 +644,7 @@ impl StowApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Select any file to conceal (videos, archives, documents, data, any size).")
+                            RichText::new("Select any secret payload (videos, archives, databases, docs, code, any size).")
                                 .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
@@ -670,10 +687,7 @@ impl StowApp {
                                 .stroke(Stroke::new(1.0_f32, card_border))
                                 .rounding(Rounding::same(6.0));
                             if ui.add(save_btn).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Carrier Image", &["png", "jpg", "jpeg", "webp"])
-                                    .save_file()
-                                {
+                                if let Some(path) = rfd::FileDialog::new().save_file() {
                                     self.embed_output_path = Some(path);
                                 }
                             }
@@ -683,7 +697,7 @@ impl StowApp {
                     ui.add_space(8.0);
                     ui.checkbox(
                         &mut self.embed_enable_encryption,
-                        RichText::new("Protect with a Password").strong(),
+                        RichText::new("Protect with a Password (ChaCha20-Poly1305 AEAD)").strong(),
                     );
 
                     if self.embed_enable_encryption {
@@ -709,9 +723,9 @@ impl StowApp {
                 && (!self.embed_enable_encryption || !self.embed_password.is_empty());
 
             let btn_text = if is_busy {
-                "Processing Carrier..."
+                "Processing Carrier Stream..."
             } else {
-                "Embed File into Image"
+                "Conceal Payload into Carrier"
             };
 
             let embed_btn = Button::new(
@@ -757,9 +771,9 @@ impl StowApp {
                         );
                         ui.add_space(4.0);
                         ui.label(format!("• Carrier Output: {}", self.embed_output_path.as_ref().unwrap().display()));
-                        ui.label(format!("• Cover Image Size: {}", Self::format_bytes(report.host_image_size)));
-                        ui.label(format!("• Hidden File Size: {}", Self::format_bytes(report.payload_size)));
-                        ui.label(format!("• Total File Size: {}", Self::format_bytes(report.total_carrier_size)));
+                        ui.label(format!("• Host Carrier Size: {}", Self::format_bytes(report.host_image_size)));
+                        ui.label(format!("• Concealed Payload Size: {}", Self::format_bytes(report.payload_size)));
+                        ui.label(format!("• Total Carrier Size: {}", Self::format_bytes(report.total_carrier_size)));
                         ui.label(format!("• Checksum (BLAKE3): {}", report.blake3_hex));
                         ui.label(format!("• Time Elapsed: {:.2}s", report.elapsed_millis as f64 / 1000.0));
                     });
@@ -807,7 +821,7 @@ impl StowApp {
         let card_border = self.theme.card_border();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // 1. Carrier Image Selector
+            // 1. Carrier Selector
             egui::Frame::none()
                 .fill(card_bg)
                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -816,13 +830,13 @@ impl StowApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Carrier Image")
+                            RichText::new("Carrier File to Extract From")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let browse_btn = Button::new(RichText::new("Browse Image...").size(13.0))
+                            let browse_btn = Button::new(RichText::new("Browse Carrier...").size(13.0))
                                 .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
                                 .stroke(Stroke::new(1.0_f32, card_border))
@@ -830,7 +844,7 @@ impl StowApp {
 
                             if ui.add_enabled(!is_busy, browse_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                                    .add_filter("All Files", &["*"])
                                     .pick_file()
                                 {
                                     self.extract_carrier_path = Some(path.clone());
@@ -843,7 +857,7 @@ impl StowApp {
                                             self.extract_output_path = Some(parent.join(&meta.1.original_filename));
                                             self.status_banner = Some((
                                                 format!(
-                                                    "Carrier payload found! Concealed file: '{}' ({})",
+                                                    "Carrier found! Concealed payload: '{}' ({})",
                                                     meta.1.original_filename,
                                                     Self::format_bytes(meta.1.original_file_size)
                                                 ),
@@ -889,7 +903,7 @@ impl StowApp {
                         });
                     } else {
                         ui.label(
-                            RichText::new("Choose an image file that contains an embedded file.")
+                            RichText::new("Choose any carrier file (Image, Audio, Video, PDF, EXE) containing a concealed payload.")
                                 .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
@@ -906,18 +920,19 @@ impl StowApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("Detected Concealed File")
+                            RichText::new("Detected Concealed Payload")
                                 .size(15.0)
                                 .color(accent)
                                 .strong(),
                         );
                         ui.add_space(4.0);
                         ui.label(format!("• Original Filename: {}", meta.original_filename));
-                        ui.label(format!("• File Size: {}", Self::format_bytes(meta.original_file_size)));
+                        ui.label(format!("• Payload Size: {}", Self::format_bytes(meta.original_file_size)));
+                        ui.label(format!("• Host Format: {}", meta.host_format));
                         ui.label(format!(
                             "• Protection: {}",
                             if meta.is_encrypted {
-                                "Password Protected"
+                                "Password Protected (ChaCha20-Poly1305)"
                             } else {
                                 "Unencrypted"
                             }
@@ -926,7 +941,6 @@ impl StowApp {
 
                 ui.add_space(10.0);
 
-                // Password input if encrypted
                 if meta.is_encrypted {
                     egui::Frame::none()
                         .fill(card_bg)
@@ -996,9 +1010,9 @@ impl StowApp {
                     && (!is_encrypted || !self.extract_password.is_empty());
 
                 let btn_text = if is_busy {
-                    "Extracting File..."
+                    "Extracting & Verifying Payload..."
                 } else {
-                    "Extract File from Image"
+                    "Extract Payload from Carrier"
                 };
 
                 let extract_btn = Button::new(
@@ -1098,35 +1112,32 @@ impl StowApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("Inspect & Clean Image")
+                            RichText::new("Inspect & Clean Carrier")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let select_btn = Button::new(RichText::new("Select Image...").size(13.0))
+                            let select_btn = Button::new(RichText::new("Select File...").size(13.0))
                                 .min_size(vec2(150.0, 32.0))
                                 .fill(Color32::from_rgb(30, 41, 59))
                                 .stroke(Stroke::new(1.0_f32, card_border))
                                 .rounding(Rounding::same(6.0));
 
                             if ui.add_enabled(!is_busy, select_btn).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
-                                    .pick_file()
-                                {
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
                                     self.inspect_path = Some(path.clone());
                                     match inspect_carrier(&path) {
                                         Ok(meta) => {
                                             self.inspect_inspected_meta = Some(meta);
                                             let parent = path.parent().unwrap_or_else(|| Path::new("."));
                                             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("clean");
-                                            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+                                            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
                                             self.sanitize_output_path = Some(parent.join(format!("{}_clean.{}", stem, ext)));
                                         }
                                         Err(e) => {
                                             self.inspect_inspected_meta = None;
-                                            self.status_banner = Some((format!("No hidden file found: {}", e), false));
+                                            self.status_banner = Some((format!("No hidden payload found: {}", e), false));
                                         }
                                     }
                                 }
@@ -1156,9 +1167,9 @@ impl StowApp {
                                 .strong(),
                         );
                         ui.add_space(4.0);
-                        ui.label(format!("• Original File: {}", meta.original_filename));
-                        ui.label(format!("• File Size: {}", Self::format_bytes(meta.original_file_size)));
-                        ui.label(format!("• Format: {}", meta.host_image_format));
+                        ui.label(format!("• Concealed Payload: {}", meta.original_filename));
+                        ui.label(format!("• Payload Size: {}", Self::format_bytes(meta.original_file_size)));
+                        ui.label(format!("• Host Format: {}", meta.host_format));
                     });
 
                 ui.add_space(10.0);
@@ -1170,13 +1181,13 @@ impl StowApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.label(
-                            RichText::new("Remove Concealed File")
+                            RichText::new("Remove Concealed Payload")
                                 .size(15.0)
                                 .color(Color32::WHITE)
                                 .strong(),
                         );
                         ui.add_space(6.0);
-                        ui.label("This will strip the hidden file, restoring the original untouched cover image.");
+                        ui.label("This will strip the concealed payload, restoring the original untouched host file.");
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
@@ -1201,7 +1212,7 @@ impl StowApp {
                         ui.add_space(12.0);
                         let can_sanitize = !is_busy && self.inspect_path.is_some() && self.sanitize_output_path.is_some();
                         let sanitize_btn = Button::new(
-                            RichText::new("Remove Hidden File")
+                            RichText::new("Remove Concealed Payload")
                                 .size(15.0)
                                 .color(if can_sanitize { Color32::WHITE } else { Color32::GRAY })
                                 .strong(),

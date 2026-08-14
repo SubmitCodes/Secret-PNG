@@ -20,7 +20,7 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([720.0, 780.0])
         .with_min_inner_size([540.0, 600.0])
-        .with_title("Stow - Conceal Any File Inside an Image");
+        .with_title("Stow - Universal Stealth Carrier Engine");
 
     if let Some(icon) = load_app_icon() {
         viewport = viewport.with_icon(icon);

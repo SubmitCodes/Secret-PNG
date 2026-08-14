@@ -1,11 +1,9 @@
 use crate::crypto::StreamEncryptor;
 use crate::error::{Result, StowError};
 use crate::protocol::{
-    PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PROTOCOL_VERSION,
+    HostCategory, PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PROTOCOL_VERSION,
 };
 use crc32fast::Hasher as Crc32Hasher;
-use image::codecs::jpeg::JpegEncoder;
-use image::ColorType;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -47,44 +45,81 @@ pub fn infer_mime_type(ext: &str) -> &'static str {
         "mov" => "video/quicktime",
         "webm" => "video/webm",
         "avi" => "video/x-msvideo",
-        "flv" => "video/x-flv",
         "wmv" => "video/x-ms-wmv",
-        "ts" => "video/mp2t",
-        "3gp" => "video/3gpp",
+        "flv" => "video/x-flv",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "ogg" => "audio/ogg",
+        "m4a" => "audio/mp4",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "pdf" => "application/pdf",
         "zip" => "application/zip",
         "tar" | "gz" => "application/gzip",
-        "pdf" => "application/pdf",
+        "7z" => "application/x-7z-compressed",
+        "rar" => "application/x-rar-compressed",
+        "exe" => "application/vnd.microsoft.portable-executable",
+        "iso" => "application/x-iso9660-image",
+        "sqlite" | "db" => "application/x-sqlite3",
+        "txt" => "text/plain",
         _ => "application/octet-stream",
     }
 }
 
-/// Validate image format and retrieve dimensions using header sniffing
-pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u32>, Option<u32>)> {
-    let file = File::open(path.as_ref())?;
-    let reader = BufReader::new(file);
-    let img_reader = image::ImageReader::new(reader)
-        .with_guessed_format()
-        .map_err(|e| StowError::InvalidHostImage(format!("Could not guess image format: {}", e)))?;
+/// Classify carrier file based on extension and content
+pub fn classify_host_carrier<P: AsRef<Path>>(path: P) -> (HostCategory, String, Option<u32>, Option<u32>) {
+    let path = path.as_ref();
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
-    let format = match img_reader.format() {
-        Some(fmt) => format!("{:?}", fmt),
-        None => return Err(StowError::InvalidHostImage("Unknown or unsupported image format".into())),
-    };
-
-    let dimensions = match img_reader.into_dimensions() {
-        Ok((w, h)) => (Some(w), Some(h)),
-        Err(_) => (None, None),
-    };
-
-    Ok((format, dimensions.0, dimensions.1))
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "ico" => {
+            let dims = if let Ok(file) = File::open(path) {
+                let reader = BufReader::new(file);
+                if let Ok(img_reader) = image::ImageReader::new(reader).with_guessed_format() {
+                    img_reader.into_dimensions().ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            (
+                HostCategory::Image,
+                ext.to_uppercase(),
+                dims.map(|(w, _)| w),
+                dims.map(|(_, h)| h),
+            )
+        }
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a" | "wma" | "opus" => {
+            (HostCategory::Audio, ext.to_uppercase(), None, None)
+        }
+        "mp4" | "mkv" | "mov" | "webm" | "avi" | "wmv" | "flv" | "m4v" | "ts" | "3gp" => {
+            (HostCategory::Video, ext.to_uppercase(), None, None)
+        }
+        "pdf" => {
+            (HostCategory::Document, "PDF".to_string(), None, None)
+        }
+        "exe" | "dll" | "iso" | "bin" => {
+            (HostCategory::Executable, ext.to_uppercase(), None, None)
+        }
+        _ => {
+            (HostCategory::Other, ext.to_uppercase(), None, None)
+        }
+    }
 }
 
-/// Stream host image and payload file into carrier output file with zero high-RAM allocations.
-/// Automatically formats the image stream into universal JPEG carrier structure for unlimited file size viewer compatibility.
+pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u32>, Option<u32>)> {
+    let (_, fmt, w, h) = classify_host_carrier(path);
+    Ok((fmt, w, h))
+}
+
+/// Stream host carrier and payload into carrier output file with zero high-RAM allocations.
+/// Works for Images, Audio, Video, Documents (PDF), and Executables seamlessly.
 pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     host_path: P1,
     payload_path: P2,
@@ -97,8 +132,8 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     let payload_path = payload_path.as_ref();
     let output_path = output_path.as_ref();
 
-    // 1. Inspect host image format & dimensions
-    let (host_fmt, host_w, host_h) = inspect_image_header(host_path)?;
+    // 1. Inspect host carrier format & dimensions
+    let (host_cat, host_fmt, host_w, host_h) = classify_host_carrier(host_path);
     let host_file = File::open(host_path)?;
     let host_raw_size = host_file.metadata()?.len();
 
@@ -138,58 +173,58 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
 
         let mut host_written = 0u64;
 
-        // 2. Stream host image: if already JPEG, copy directly; otherwise convert to JPEG stream for universal >4GB viewer compatibility
-        let is_already_jpeg = host_fmt.to_lowercase().contains("jpeg") || host_fmt.to_lowercase().contains("jpg");
-        if is_already_jpeg {
-            let mut host_reader = BufReader::with_capacity(IO_BUFFER_SIZE, host_file);
-            let mut buffer = vec![0u8; IO_BUFFER_SIZE];
-            while host_written < host_raw_size {
-                let bytes_to_read = std::cmp::min(buffer.len() as u64, host_raw_size - host_written) as usize;
-                let n = host_reader.read(&mut buffer[..bytes_to_read])?;
-                if n == 0 {
-                    break;
-                }
-                out_writer.write_all(&buffer[..n])?;
-                host_written += n as u64;
-                total_processed_bytes += n as u64;
+        // 2. Stream host carrier in raw high-speed 1MB chunks (Preserves 100% of Audio, Video, PDF, Image, EXE)
+        let mut host_reader = BufReader::with_capacity(IO_BUFFER_SIZE, host_file);
+        let mut buffer = vec![0u8; IO_BUFFER_SIZE];
+        while host_written < host_raw_size {
+            let bytes_to_read = std::cmp::min(buffer.len() as u64, host_raw_size - host_written) as usize;
+            let n = host_reader.read(&mut buffer[..bytes_to_read])?;
+            if n == 0 {
+                break;
             }
-        } else {
-            // Load and encode to pristine JPEG stream
-            let img = image::open(host_path)
-                .map_err(|e| StowError::InvalidHostImage(format!("Could not decode image: {}", e)))?;
-            let rgb = img.to_rgb8();
-            let (w, h) = rgb.dimensions();
+            out_writer.write_all(&buffer[..n])?;
+            host_written += n as u64;
+            total_processed_bytes += n as u64;
 
-            let mut encoder = JpegEncoder::new_with_quality(&mut out_writer, 95);
-            encoder
-                .encode(rgb.as_raw(), w, h, ColorType::Rgb8.into())
-                .map_err(|e| StowError::InvalidHostImage(format!("JPEG encoding failed: {}", e)))?;
-            out_writer.flush()?;
-
-            // Get written host size
-            host_written = std::fs::metadata(&temp_output_path)?.len();
-            total_processed_bytes += host_raw_size;
+            if let Some(ref cb) = progress {
+                let now = Instant::now();
+                if now.duration_since(last_progress_time).as_millis() >= 50 {
+                    let elapsed = now.duration_since(last_progress_time).as_secs_f64();
+                    let speed = if elapsed > 0.0 {
+                        (total_processed_bytes - last_progress_bytes) as f64 / elapsed
+                    } else {
+                        0.0
+                    };
+                    cb(ProgressUpdate {
+                        phase: format!("Streaming Host Carrier ({})", host_fmt),
+                        bytes_processed: total_processed_bytes,
+                        total_bytes: total_expected_bytes,
+                        speed_bytes_sec: speed,
+                        percentage: (total_processed_bytes as f32 / total_expected_bytes as f32) * 100.0,
+                    });
+                    last_progress_time = now;
+                    last_progress_bytes = total_processed_bytes;
+                }
+            }
         }
 
+        // 3. Stream payload with BLAKE3 & CRC32 calculation + Optional ChaCha20-Poly1305 AEAD
         let payload_file = File::open(payload_path)?;
         let mut payload_reader = BufReader::with_capacity(IO_BUFFER_SIZE, payload_file);
-        let mut buffer = vec![0u8; IO_BUFFER_SIZE];
 
-        // 3. Stream payload with checksum and optional ChaCha20-Poly1305 encryption
-        let is_encrypted = options.password.is_some();
+        let mut blake3_hasher = blake3::Hasher::new();
+        let mut crc_hasher = Crc32Hasher::new();
+
         let mut encryptor = if let Some(ref pass) = options.password {
             Some(StreamEncryptor::new(pass)?)
         } else {
             None
         };
 
-        let mut blake3_hasher = blake3::Hasher::new();
-        let mut payload_crc_hasher = Crc32Hasher::new();
-        let mut payload_stream_size = 0u64;
-        let mut payload_raw_read = 0u64;
+        let mut payload_written = 0u64;
 
-        while payload_raw_read < payload_raw_size {
-            let bytes_to_read = std::cmp::min(buffer.len() as u64, payload_raw_size - payload_raw_read) as usize;
+        while payload_written < payload_raw_size {
+            let bytes_to_read = std::cmp::min(buffer.len() as u64, payload_raw_size - payload_written) as usize;
             let n = payload_reader.read(&mut buffer[..bytes_to_read])?;
             if n == 0 {
                 break;
@@ -197,116 +232,118 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
 
             let chunk = &buffer[..n];
             blake3_hasher.update(chunk);
-            payload_crc_hasher.update(chunk);
-            payload_raw_read += n as u64;
-            total_processed_bytes += n as u64;
+            crc_hasher.update(chunk);
 
             if let Some(ref mut enc) = encryptor {
-                let written = enc.encrypt_chunk(chunk, &mut out_writer)?;
-                payload_stream_size += written as u64;
+                let bytes_enc = enc.encrypt_chunk(chunk, &mut out_writer)?;
+                payload_written += bytes_enc as u64;
             } else {
                 out_writer.write_all(chunk)?;
-                payload_stream_size += n as u64;
+                payload_written += n as u64;
             }
 
+            total_processed_bytes += n as u64;
+
             if let Some(ref cb) = progress {
-                if last_progress_time.elapsed().as_millis() >= 60 || payload_raw_read >= payload_raw_size {
-                    let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
-                    let speed = if elapsed_sec > 0.0 {
-                        (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
+                let now = Instant::now();
+                if now.duration_since(last_progress_time).as_millis() >= 50 {
+                    let elapsed = now.duration_since(last_progress_time).as_secs_f64();
+                    let speed = if elapsed > 0.0 {
+                        (total_processed_bytes - last_progress_bytes) as f64 / elapsed
                     } else {
                         0.0
                     };
-                    last_progress_time = Instant::now();
-                    last_progress_bytes = total_processed_bytes;
-
                     cb(ProgressUpdate {
-                        phase: if is_encrypted { "Encrypting & Embedding Video" } else { "Streaming & Embedding Video" }.to_string(),
+                        phase: if encryptor.is_some() {
+                            "Encrypting & Concealing Payload".into()
+                        } else {
+                            "Concealing Payload".into()
+                        },
                         bytes_processed: total_processed_bytes,
                         total_bytes: total_expected_bytes,
                         speed_bytes_sec: speed,
-                        percentage: ((total_processed_bytes as f32 / total_expected_bytes as f32) * 100.0).min(99.9),
+                        percentage: (total_processed_bytes as f32 / total_expected_bytes as f32) * 100.0,
                     });
+                    last_progress_time = now;
+                    last_progress_bytes = total_processed_bytes;
                 }
             }
         }
 
-        let blake3_final = blake3_hasher.finalize();
-        let blake3_hex = blake3_final.to_hex().to_string();
-        let crc32_final = payload_crc_hasher.finalize();
+        let blake3_hex = blake3_hasher.finalize().to_hex().to_string();
+        let crc32 = crc_hasher.finalize();
+        let is_encrypted = encryptor.is_some();
 
+        // 4. Build and serialize JSON Metadata
+        let enc_metadata = encryptor.map(|enc| enc.metadata);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .unwrap_or_default()
+            .as_secs();
 
-        // 4. Serialize metadata block
         let metadata = PayloadMetadata {
             protocol_version: PROTOCOL_VERSION,
             original_filename: original_filename.clone(),
             file_extension,
             mime_type,
             original_file_size: payload_raw_size,
-            payload_size: payload_stream_size,
+            payload_size: payload_written,
             blake3_hex: blake3_hex.clone(),
-            crc32: crc32_final,
+            crc32,
             timestamp_epoch_sec: timestamp,
             is_encrypted,
-            encryption: encryptor.map(|e| e.metadata),
+            encryption: enc_metadata,
+            host_category: Some(host_cat),
+            host_format: host_fmt.clone(),
             host_image_format: host_fmt,
             host_image_width: host_w,
             host_image_height: host_h,
         };
 
-        let metadata_json = serde_json::to_vec(&metadata)
+        let meta_json_bytes = serde_json::to_vec(&metadata)
             .map_err(|e| StowError::CorruptedMetadata(format!("Serialization error: {}", e)))?;
-        let metadata_len = metadata_json.len() as u32;
 
         let mut meta_crc_hasher = Crc32Hasher::new();
-        meta_crc_hasher.update(&metadata_json);
-        let metadata_crc32 = meta_crc_hasher.finalize();
+        meta_crc_hasher.update(&meta_json_bytes);
+        let meta_crc32 = meta_crc_hasher.finalize();
 
-        let metadata_offset = host_written + payload_stream_size;
-        out_writer.write_all(&metadata_json)?;
+        let metadata_offset = host_written + payload_written;
+        let metadata_length = meta_json_bytes.len() as u32;
 
-        // 5. Build and write Trailer Index (exact 64 bytes at EOF)
-        let mut flags = 0u16;
-        if is_encrypted {
-            flags |= TrailerIndex::FLAG_ENCRYPTED;
-        }
+        out_writer.write_all(&meta_json_bytes)?;
 
+        // 5. Append Fixed 64-byte Trailer Index
         let trailer = TrailerIndex {
             version: PROTOCOL_VERSION,
-            flags,
+            flags: if is_encrypted { TrailerIndex::FLAG_ENCRYPTED } else { 0 },
             host_image_size: host_written,
             payload_offset: host_written,
-            payload_length: payload_stream_size,
+            payload_length: payload_written,
             metadata_offset,
-            metadata_length: metadata_len,
-            metadata_crc32,
+            metadata_length,
+            metadata_crc32: meta_crc32,
         };
 
         let trailer_bytes = trailer.to_bytes();
         out_writer.write_all(&trailer_bytes)?;
         out_writer.flush()?;
-        drop(out_writer);
 
-        Ok((host_written, payload_raw_size, blake3_hex, crc32_final, is_encrypted))
+        Ok((host_written, payload_written, blake3_hex, crc32, is_encrypted))
     })();
 
     match embed_result {
-        Ok((host_written, payload_raw_size, blake3_hex, crc32_final, is_encrypted)) => {
-            // Atomically replace target output file
+        Ok((host_sz, payload_sz, blake3_h, crc, is_enc)) => {
             if output_path.exists() {
-                let _ = std::fs::remove_file(output_path);
+                std::fs::remove_file(output_path)?;
             }
             std::fs::rename(&temp_output_path, output_path)?;
 
             let total_carrier_size = std::fs::metadata(output_path)?.len();
+            let elapsed_millis = start_time.elapsed().as_millis();
 
-            if let Some(ref cb) = progress {
+            if let Some(cb) = progress {
                 cb(ProgressUpdate {
-                    phase: "Complete".to_string(),
+                    phase: "Complete".into(),
                     bytes_processed: total_expected_bytes,
                     total_bytes: total_expected_bytes,
                     speed_bytes_sec: 0.0,
@@ -315,14 +352,14 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             }
 
             Ok(EmbedReport {
-                host_image_size: host_written,
-                payload_size: payload_raw_size,
+                host_image_size: host_sz,
+                payload_size: payload_sz,
                 total_carrier_size,
                 original_file_name: original_filename,
-                blake3_hex,
-                crc32: crc32_final,
-                is_encrypted,
-                elapsed_millis: start_time.elapsed().as_millis(),
+                blake3_hex: blake3_h,
+                crc32: crc,
+                is_encrypted: is_enc,
+                elapsed_millis,
             })
         }
         Err(e) => {

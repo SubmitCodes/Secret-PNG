@@ -4,13 +4,39 @@ use crc32fast::Hasher as Crc32Hasher;
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const TRAILER_MAGIC: &[u8; 16] = b"SECRETPNG_V1\x00\x00\x00\x00";
+pub const TRAILER_MAGIC_STOW: &[u8; 16] = b"STOW_V1\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+pub const TRAILER_MAGIC_LEGACY: &[u8; 16] = b"SECRETPNG_V1\x00\x00\x00\x00";
+pub const TRAILER_MAGIC: &[u8; 16] = TRAILER_MAGIC_STOW;
 pub const TRAILER_TERMINATOR: [u8; 4] = [0x55, 0xAA, 0x55, 0xAA];
 pub const TRAILER_SIZE: usize = 64;
 
 /// Ultra-high throughput streaming buffer (1 MB)
 pub const IO_BUFFER_SIZE: usize = 1024 * 1024;
 pub const DEFAULT_CHUNK_SIZE: usize = IO_BUFFER_SIZE;
+
+/// Classification of host carrier file
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum HostCategory {
+    Image,
+    Audio,
+    Video,
+    Document,
+    Executable,
+    Other,
+}
+
+impl HostCategory {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            HostCategory::Image => "🖼️ Image",
+            HostCategory::Audio => "🎵 Audio",
+            HostCategory::Video => "🎬 Video",
+            HostCategory::Document => "📄 Document",
+            HostCategory::Executable => "⚙️ Executable",
+            HostCategory::Other => "📁 File",
+        }
+    }
+}
 
 /// Encryption metadata attached when payload is encrypted with a password
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,7 +51,7 @@ pub struct EncryptionMetadata {
     pub cipher: String,
 }
 
-/// Metadata stored in the carrier image describing the embedded payload
+/// Metadata stored in the carrier describing the embedded payload
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PayloadMetadata {
     pub protocol_version: u16,
@@ -40,8 +66,16 @@ pub struct PayloadMetadata {
     pub is_encrypted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encryption: Option<EncryptionMetadata>,
+
+    // Carrier properties
+    #[serde(default)]
+    pub host_category: Option<HostCategory>,
+    pub host_format: String,
+    #[serde(default)]
     pub host_image_format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub host_image_width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub host_image_height: Option<u32>,
 }
 
@@ -65,8 +99,8 @@ impl TrailerIndex {
     pub fn to_bytes(&self) -> [u8; TRAILER_SIZE] {
         let mut buf = [0u8; TRAILER_SIZE];
 
-        // 0..16: Magic
-        buf[0..16].copy_from_slice(TRAILER_MAGIC);
+        // 0..16: Magic (STOW_V1)
+        buf[0..16].copy_from_slice(TRAILER_MAGIC_STOW);
         // 16..18: Version
         BigEndian::write_u16(&mut buf[16..18], self.version);
         // 18..20: Flags
@@ -107,8 +141,9 @@ impl TrailerIndex {
             return Err(StowError::NoCarrierDataFound);
         }
 
-        // Validate Magic
-        if buf[0..16] != *TRAILER_MAGIC {
+        // Validate Magic (Support both STOW_V1 and SECRETPNG_V1)
+        let magic = &buf[0..16];
+        if magic != TRAILER_MAGIC_STOW && magic != TRAILER_MAGIC_LEGACY {
             return Err(StowError::NoCarrierDataFound);
         }
 

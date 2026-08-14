@@ -1,9 +1,10 @@
 [Desktop Entry]
 Name=Stow
-Comment=High-speed steganographic file concealer and extractor
-Exec=stow-gui
+Comment=Universal Stealth Carrier Engine — Conceal any file inside Images, Audio, Video, PDFs & Executables
+Exec=stow_gui
 Icon=stow
 Terminal=false
 Type=Application
-Categories=Utility;Security;Graphics;
-Keywords=steganography;stow;png;file;carrier;crypto;security;
+Categories=Utility;Security;Graphics;AudioVideo;
+Keywords=steganography;stow;carrier;image;audio;video;pdf;crypto;security;vault;
+StartupWMClass=stow_gui
