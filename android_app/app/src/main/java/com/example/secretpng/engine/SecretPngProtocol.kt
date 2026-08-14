@@ -182,7 +182,7 @@ object SecretPngEngine {
                 val json = JSONObject(String(metaBytes, Charsets.UTF_8))
                 CarrierInfo(
                     protocolVersion = json.optInt("protocol_version", 1),
-                    originalFilename = json.optString("original_filename", "extracted_video.mp4"),
+                    originalFilename = json.optString("original_filename", "extracted_payload.bin"),
                     fileExtension = json.optString("file_extension", "mp4"),
                     mimeType = json.optString("mime_type", "video/mp4"),
                     originalFileSize = json.optLong("original_file_size", 0L),
@@ -246,7 +246,7 @@ object SecretPngEngine {
         val crc32 = CRC32()
 
         val payloadInput = context.contentResolver.openInputStream(payloadUri)
-            ?: throw IOException("Failed to open payload video")
+            ?: throw IOException("Failed to open payload file")
 
         var payloadWritten = 0L
         val startTime = System.currentTimeMillis()
@@ -266,7 +266,7 @@ object SecretPngEngine {
 
                 onProgress(
                     ProgressState(
-                        phase = if (isEncrypted) "Encrypting & Streaming Video" else "Streaming & Embedding Video",
+                        phase = if (isEncrypted) "Encrypting & Streaming Payload" else "Streaming & Embedding Payload",
                         bytesProcessed = payloadWritten,
                         totalBytes = payloadSize,
                         speedBytesSec = speed,
@@ -410,7 +410,7 @@ object SecretPngEngine {
 
                     onProgress(
                         ProgressState(
-                            phase = "Extracting Video Payload",
+                            phase = "Extracting Payload",
                             bytesProcessed = processed,
                             totalBytes = origSize,
                             speedBytesSec = speed,

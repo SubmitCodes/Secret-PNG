@@ -136,7 +136,7 @@ jobs:
           body: |
             # 📦 Stow ${{ github.event.inputs.tag_name }}
 
-            High-speed steganographic video concealer and extractor with zero size limits.
+            High-speed steganographic file concealer and extractor with zero size limits.
 
             ---
 

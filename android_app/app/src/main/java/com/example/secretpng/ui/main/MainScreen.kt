@@ -57,8 +57,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
     // State for Embed
     var hostImageUri by remember { mutableStateOf<Uri?>(null) }
     var hostImageName by remember { mutableStateOf<String?>(null) }
-    var payloadVideoUri by remember { mutableStateOf<Uri?>(null) }
-    var payloadVideoName by remember { mutableStateOf<String?>(null) }
+    var payloadFileUri by remember { mutableStateOf<Uri?>(null) }
+    var payloadFileName by remember { mutableStateOf<String?>(null) }
     var embedPassword by remember { mutableStateOf("") }
     var enableEncryption by remember { mutableStateOf(false) }
     var showEmbedPassword by remember { mutableStateOf(false) }
@@ -84,12 +84,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    val pickPayloadVideoLauncher = rememberLauncherForActivityResult(
+    val pickPayloadFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            payloadVideoUri = uri
-            payloadVideoName = SecretPngEngine.getFileNameAndSize(context, uri).first
+            payloadFileUri = uri
+            payloadFileName = SecretPngEngine.getFileNameAndSize(context, uri).first
         }
     }
 
@@ -114,14 +114,14 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val saveCarrierLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/png")
     ) { outUri: Uri? ->
-        if (outUri != null && hostImageUri != null && payloadVideoUri != null) {
+        if (outUri != null && hostImageUri != null && payloadFileUri != null) {
             isProcessing = true
             scope.launch {
                 try {
                     val info = SecretPngEngine.embed(
                         context = context,
                         hostUri = hostImageUri!!,
-                        payloadUri = payloadVideoUri!!,
+                        payloadUri = payloadFileUri!!,
                         outputUri = outUri,
                         password = if (enableEncryption) embedPassword else null,
                         onProgress = { progressState = it }
@@ -153,7 +153,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         onProgress = { progressState = it }
                     )
                     lastReport = info
-                    Toast.makeText(context, "Video extracted successfully!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "File extracted successfully!", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Extraction error: ${e.message}", Toast.LENGTH_LONG).show()
                 } finally {
@@ -342,7 +342,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Payload Video Card
+            // Secret File Payload Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardBg),
                 shape = RoundedCornerShape(8.dp),
@@ -355,7 +355,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         Text("🎥 Secret Video File", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Spacer(modifier = Modifier.weight(1f))
                         OutlinedButton(
-                            onClick = { pickPayloadVideoLauncher.launch("video/*") },
+                            onClick = { pickPayloadFileLauncher.launch("video/*") },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
                             border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(CardBorder, CardBorder))),
                             shape = RoundedCornerShape(6.dp)
@@ -363,9 +363,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             Text("Browse...")
                         }
                     }
-                    if (payloadVideoName != null) {
+                    if (payloadFileName != null) {
                         Spacer(modifier = Modifier.height(6.dp))
-                        Text(payloadVideoName!!, color = Color(0xFF818CF8), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(payloadFileName!!, color = Color(0xFF818CF8), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -422,7 +422,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // Action Button
-            val canEmbed = !isProcessing && hostImageUri != null && payloadVideoUri != null && (!enableEncryption || embedPassword.isNotEmpty())
+            val canEmbed = !isProcessing && hostImageUri != null && payloadFileUri != null && (!enableEncryption || embedPassword.isNotEmpty())
             Button(
                 onClick = { saveCarrierLauncher.launch(hostImageName?.substringBeforeLast('.') + "_carrier.png") },
                 enabled = canEmbed,

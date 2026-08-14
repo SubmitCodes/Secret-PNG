@@ -48,8 +48,8 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 ### 1. 📦 Embed File into Image (Conceal)
 1. Open **Stow** and stay on the **Embed Video** tab.
 2. Click **Browse Image...** to pick any cover picture (`.png`, `.jpg`, `.webp`, `.bmp`, `.gif`).
-3. Click **Browse Video...** to select your video or media file (`.mp4`, `.mkv`, `.mov`, `.zip`, etc.).
-4. *(Optional)* Check **Protect with a Password** and enter a password to encrypt your video with 256-bit ChaCha20-Poly1305.
+3. Click **Browse File...** to select any file or media archive (`.mp4`, `.mkv`, `.mov`, `.zip`, etc.).
+4. *(Optional)* Check **Protect with a Password** and enter a password to encrypt your file with 256-bit ChaCha20-Poly1305.
 5. Click **Embed File into Image**. Your new carrier image is created and viewable in any photo viewer!
 
 ---
@@ -57,9 +57,9 @@ Grab the latest standalone release for your platform from the [Releases Page](ht
 ### 2. 🔓 Extract File from Image (Restore)
 1. Switch to the **Extract Video** tab.
 2. Click **Browse Image...** and select the carrier image.
-3. Stow automatically inspects the image in milliseconds and reveals the embedded video details.
+3. Stow automatically inspects the image in milliseconds and reveals the concealed file details.
 4. *(If password-protected)* Enter the password.
-5. Click **Extract File from Image**. Your video will be extracted with full BLAKE3 checksum verification!
+5. Click **Extract File from Image**. Your file will be extracted with full BLAKE3 checksum verification!
 
 ---
 

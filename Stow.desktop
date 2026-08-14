@@ -1,9 +1,9 @@
 [Desktop Entry]
 Name=Stow
-Comment=High-speed steganographic video concealer and extractor
+Comment=High-speed steganographic file concealer and extractor
 Exec=stow-gui
 Icon=stow
 Terminal=false
 Type=Application
 Categories=Utility;Security;Graphics;
-Keywords=steganography;stow;png;video;crypto;security;
+Keywords=steganography;stow;png;file;carrier;crypto;security;
