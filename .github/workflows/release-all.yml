@@ -45,7 +45,7 @@ jobs:
           lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
           chmod +x Stow_macOS_universal
 
-      - name: Generate macOS .icns Icon & Package Stow.app & .dmg
+      - name: Generate macOS .icns Icon & Package Stow_macOS.dmg
         run: |
           mkdir -p Stow.iconset
           sips -z 16 16     Stow.png --out Stow.iconset/icon_16x16.png
@@ -95,16 +95,12 @@ jobs:
           cp -r Stow.app dmg_root/
           ln -s /Applications dmg_root/Applications
           hdiutil create -volname "Stow" -srcfolder dmg_root -ov -format UDZO Stow_macOS.dmg
-          zip -r Stow_macOS.zip Stow.app
 
-      - name: Save macOS Assets
+      - name: Save macOS DMG Asset
         uses: actions/upload-artifact@v4
         with:
-          name: macos-assets
-          path: |
-            Stow_macOS.dmg
-            Stow_macOS.zip
-            Stow_macOS_universal
+          name: macos-dmg
+          path: Stow_macOS.dmg
 
   publish-all:
     name: Package & Publish All Platforms
@@ -119,16 +115,16 @@ jobs:
           name: linux-binary
           path: ./
 
-      - name: Download macOS Assets
+      - name: Download macOS DMG
         uses: actions/download-artifact@v4
         with:
-          name: macos-assets
+          name: macos-dmg
           path: ./
 
       - name: Prepare Assets
         run: |
           mv secret_png_gui Stow_Linux_x86_64
-          chmod +x Stow_Linux_x86_64 Stow_macOS_universal
+          chmod +x Stow_Linux_x86_64
           cp dist/windows/Stow.exe ./Stow_Windows_x64.exe
           cp dist/android/Stow.apk ./Stow_Android.apk
 
@@ -145,15 +141,12 @@ jobs:
             ---
 
             ### 🚀 Direct Downloads:
-            - **🪟 Windows (Standalone .exe)**: [`Stow_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Windows_x64.exe) *(No installation needed, embedded icon)*
-            - **🍎 macOS (Disk Image Installer)**: [`Stow_macOS.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS.dmg) *(Apple standard .dmg installer with drag-to-Applications)*
-            - **🍎 macOS (Universal App Bundle)**: [`Stow_macOS.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS.zip)
+            - **🪟 Windows (64-bit)**: [`Stow_Windows_x64.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Windows_x64.exe)
+            - **🍎 macOS (Universal DMG)**: [`Stow_macOS.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_macOS.dmg)
             - **🐧 Linux (64-bit)**: [`Stow_Linux_x86_64`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Linux_x86_64)
             - **📱 Android (APK)**: [`Stow_Android.apk`](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/Stow_Android.apk)
           files: |
             Stow_Windows_x64.exe
             Stow_macOS.dmg
-            Stow_macOS.zip
-            Stow_macOS_universal
             Stow_Linux_x86_64
             Stow_Android.apk

@@ -31,7 +31,7 @@ jobs:
           lipo -create -output Stow_macOS_universal target/x86_64-apple-darwin/release/secret_png_gui target/aarch64-apple-darwin/release/secret_png_gui
           chmod +x Stow_macOS_universal
 
-      - name: Generate macOS .icns Icon & Package Stow.app & .dmg
+      - name: Generate macOS .icns Icon & Package Stow_macOS.dmg
         run: |
           mkdir -p Stow.iconset
           sips -z 16 16     Stow.png --out Stow.iconset/icon_16x16.png
@@ -77,18 +77,13 @@ jobs:
           </plist>
           EOF
 
-          # Create native Apple Disk Image (.dmg)
           mkdir -p dmg_root
           cp -r Stow.app dmg_root/
           ln -s /Applications dmg_root/Applications
           hdiutil create -volname "Stow" -srcfolder dmg_root -ov -format UDZO Stow_macOS.dmg
-          zip -r Stow_macOS.zip Stow.app
 
-      - name: Upload macOS Assets to GitHub Release
+      - name: Upload macOS DMG to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ github.event.inputs.tag_name }}"
-          files: |
-            Stow_macOS.dmg
-            Stow_macOS.zip
-            Stow_macOS_universal
+          files: Stow_macOS.dmg
