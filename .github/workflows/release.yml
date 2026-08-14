@@ -5,13 +5,18 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      rebuild_android:
+        description: "Rebuild Android APK from source (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
 
 jobs:
-  build-all:
-    name: Build All Platforms & Publish Release
+  build-and-release:
+    name: Build & Publish Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -23,7 +28,7 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
-      # 2. Build Linux Binaries
+      # 2. Build Linux Binary
       - name: Install Linux Dependencies
         run: |
           sudo apt-get update -qq
@@ -35,22 +40,27 @@ jobs:
           cp target/release/secret_png_gui ./SecretPNG_Linux_x86_64
           chmod +x ./SecretPNG_Linux_x86_64
 
-      # 3. Build Android APK
-      - name: Set up Java 17
+      # 3. Use Existing Pre-built Android APK (or rebuild if requested)
+      - name: Rebuild Android APK (Optional)
+        if: "${{ github.event.inputs.rebuild_android == 'true' }}"
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Build Android APK
-        working-directory: android_app
+      - name: Compile Android APK from source
+        if: "${{ github.event.inputs.rebuild_android == 'true' }}"
         run: |
+          cd android_app
           chmod +x gradlew
           ./gradlew assembleDebug
           cp app/build/outputs/apk/debug/app-debug.apk ../SecretPNG_Android.apk
+          cd ..
+
+      - name: Copy Existing Android APK
+        if: "${{ github.event.inputs.rebuild_android != 'true' }}"
+        run: |
+          cp dist/android/SecretPNG.apk ./SecretPNG_Android.apk
 
       # 4. Copy Standalone Windows Executable
       - name: Copy Windows Standalone Executable
