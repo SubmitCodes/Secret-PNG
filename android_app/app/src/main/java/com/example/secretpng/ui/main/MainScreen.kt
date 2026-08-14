@@ -4,20 +4,27 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.secretpng.engine.CarrierInfo
@@ -25,6 +32,17 @@ import com.example.secretpng.engine.ProgressState
 import com.example.secretpng.engine.SecretPngEngine
 import kotlinx.coroutines.launch
 
+// Color Palette matching Desktop App
+val BgColor = Color(0xFF0B0F19)
+val CardBg = Color(0xFF161B22)
+val CardBorder = Color(0xFF30363D)
+val AccentCyan = Color(0xFF38BDF8)
+val AccentBlue = Color(0xFF0284C7)
+val EmeraldSuccess = Color(0xFF10B981)
+val TextMuted = Color(0xFF94A3B8)
+val DarkNavy = Color(0xFF0F172A)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -38,10 +56,15 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var hostImageName by remember { mutableStateOf<String?>(null) }
     var payloadVideoUri by remember { mutableStateOf<Uri?>(null) }
     var payloadVideoName by remember { mutableStateOf<String?>(null) }
+    var embedPassword by remember { mutableStateOf("") }
+    var enableEncryption by remember { mutableStateOf(false) }
+    var showEmbedPassword by remember { mutableStateOf(false) }
 
     // State for Extract / Inspect
     var carrierUri by remember { mutableStateOf<Uri?>(null) }
     var carrierName by remember { mutableStateOf<String?>(null) }
+    var extractPassword by remember { mutableStateOf("") }
+    var showExtractPassword by remember { mutableStateOf(false) }
     var inspectedInfo by remember { mutableStateOf<CarrierInfo?>(null) }
 
     var isProcessing by remember { mutableStateOf(false) }
@@ -79,7 +102,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     inspectedInfo = info
                 } catch (e: Exception) {
                     inspectedInfo = null
-                    Toast.makeText(context, "No carrier payload: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "No carrier payload found: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -97,6 +120,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         hostUri = hostImageUri!!,
                         payloadUri = payloadVideoUri!!,
                         outputUri = outUri,
+                        password = if (enableEncryption) embedPassword else null,
                         onProgress = { progressState = it }
                     )
                     lastReport = info
@@ -122,6 +146,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         context = context,
                         carrierUri = carrierUri!!,
                         outputUri = outUri,
+                        password = if (extractPassword.isNotEmpty()) extractPassword else null,
                         onProgress = { progressState = it }
                     )
                     lastReport = info
@@ -145,238 +170,428 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    fun formatSpeed(speed: Double): String {
+        return when {
+            speed >= 1024 * 1024 * 1024 -> "%.2f GB/s".format(speed / (1024.0 * 1024 * 1024))
+            speed >= 1024 * 1024 -> "%.2f MB/s".format(speed / (1024.0 * 1024))
+            speed >= 1024 -> "%.2f KB/s".format(speed / 1024.0)
+            else -> "%.0f B/s".format(speed)
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0D1117))
+            .background(BgColor)
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
         // Header
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(bottom = 14.dp)
         ) {
             Text(
                 text = "🛡️ SECRET PNG",
-                fontSize = 24.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF38BDF8)
+                color = AccentCyan
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
-                text = "v1.0 Android",
+                text = "Native Streaming v1.0",
                 fontSize = 12.sp,
-                color = Color(0xFF94A3B8)
+                color = TextMuted
             )
         }
 
         // Tab Navigation
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = Color(0xFF161B22),
-            contentColor = Color(0xFF38BDF8),
-            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CardBg, RoundedCornerShape(8.dp))
+                .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title, fontWeight = FontWeight.SemiBold) }
-                )
+                val isSelected = selectedTab == index
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) DarkNavy else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (isSelected) AccentCyan else Color.Transparent,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable { selectedTab = index }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) AccentCyan else TextMuted
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         // Progress Card
         progressState?.let { progress ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                colors = CardDefaults.cardColors(containerColor = DarkNavy),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0xFF38BDF8), RoundedCornerShape(8.dp))
-                    .padding(bottom = 16.dp)
+                    .border(1.dp, AccentCyan, RoundedCornerShape(8.dp))
+                    .padding(bottom = 14.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(progress.phase, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
-                        Text("%.1f%%".format(progress.percentage), color = Color.White)
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = progress.phase,
+                            color = AccentCyan,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "%.1f%%".format(progress.percentage),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
                     }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
                         progress = { progress.percentage / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color(0xFF38BDF8),
-                        trackColor = Color(0xFF334155),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = AccentCyan,
+                        trackColor = Color(0xFF1E293B)
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "${formatBytes(progress.bytesProcessed)} / ${formatBytes(progress.totalBytes)}",
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8)
+                            text = "${formatBytes(progress.bytesProcessed)} / ${formatBytes(progress.totalBytes)}",
+                            color = TextMuted,
+                            fontSize = 12.sp
                         )
+                        Spacer(modifier = Modifier.weight(1f))
                         Text(
-                            "⚡ ${formatBytes(progress.speedBytesSec.toLong())}/s",
-                            fontSize = 12.sp,
-                            color = Color(0xFF34D399)
+                            text = "⚡ ${formatSpeed(progress.speedBytesSec)}",
+                            color = EmeraldSuccess,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
                         )
                     }
                 }
             }
         }
 
-        when (selectedTab) {
-            0 -> { // EMBED
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text("🖼️ Select Host Cover Image", fontWeight = FontWeight.Bold, color = Color.White)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = { pickHostImageLauncher.launch("image/*") },
-                            enabled = !isProcessing,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                        ) {
-                            Text(hostImageName ?: "Browse Cover Image...")
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text("🎬 Select Video Payload", fontWeight = FontWeight.Bold, color = Color.White)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = { pickPayloadVideoLauncher.launch("video/*") },
-                            enabled = !isProcessing,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                        ) {
-                            Text(payloadVideoName ?: "Browse Video File...")
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        Button(
-                            onClick = {
-                                val stem = hostImageName?.substringBeforeLast('.') ?: "carrier"
-                                saveCarrierLauncher.launch("${stem}_carrier.png")
-                            },
-                            enabled = !isProcessing && hostImageUri != null && payloadVideoUri != null,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Text("🚀 Embed Video into Image", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-            1 -> { // EXTRACT
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text("🖼️ Select Carrier Image", fontWeight = FontWeight.Bold, color = Color.White)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = { pickCarrierLauncher.launch("image/*") },
-                            enabled = !isProcessing,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                        ) {
-                            Text(carrierName ?: "Browse Carrier Image...")
-                        }
-
-                        inspectedInfo?.let { info ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF38BDF8), RoundedCornerShape(6.dp))
-                                    .padding(8.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(8.dp)) {
-                                    Text("📦 Embedded: ${info.originalFilename}", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
-                                    Text("• Size: ${formatBytes(info.originalFileSize)}", color = Color.White, fontSize = 13.sp)
-                                    Text("• Cover Size: ${formatBytes(info.hostImageSize)}", color = Color.White, fontSize = 13.sp)
-                                    Text("• Integrity: SHA-256 Verified", color = Color(0xFF34D399), fontSize = 13.sp)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Button(
-                                onClick = { saveExtractedLauncher.launch(info.originalFilename) },
-                                enabled = !isProcessing,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34D399)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                            ) {
-                                Text("🔓 Extract & Save Video", color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-            2 -> { // INSPECT
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text("🔍 Carrier Inspector", fontWeight = FontWeight.Bold, color = Color.White)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = { pickCarrierLauncher.launch("image/*") },
-                            enabled = !isProcessing,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                        ) {
-                            Text(carrierName ?: "Select Image to Inspect...")
-                        }
-
-                        inspectedInfo?.let { info ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("Protocol Version: v${info.protocolVersion}", color = Color(0xFF94A3B8))
-                            Text("Payload Name: ${info.originalFilename}", color = Color.White)
-                            Text("Payload Size: ${formatBytes(info.originalFileSize)}", color = Color.White)
-                            Text("Cover Size: ${formatBytes(info.hostImageSize)}", color = Color.White)
-                            Text("Fixed Trailer: 64 bytes (EOF)", color = Color(0xFF94A3B8))
-                            Text("Checksum: ${info.sha256Hex}", color = Color(0xFF38BDF8), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        lastReport?.let { report ->
-            Spacer(modifier = Modifier.height(16.dp))
+        // TAB 1: EMBED
+        if (selectedTab == 0) {
+            // Host Cover Image Card
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF064E3B)),
+                colors = CardDefaults.cardColors(containerColor = CardBg),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0xFF10B981), RoundedCornerShape(8.dp))
+                    .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("✅ Operation Successful!", fontWeight = FontWeight.Bold, color = Color(0xFFA7F3D0))
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🖼️ Host Cover Image", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { pickHostImageLauncher.launch("image/*") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(CardBorder, CardBorder))),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("Browse...")
+                        }
+                    }
+                    if (hostImageName != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(hostImageName!!, color = AccentCyan, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Payload Video Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🎥 Secret Video File", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { pickPayloadVideoLauncher.launch("video/*") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(CardBorder, CardBorder))),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("Browse...")
+                        }
+                    }
+                    if (payloadVideoName != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(payloadVideoName!!, color = Color(0xFF818CF8), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Security Options Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("🔐 Security & Password", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = enableEncryption,
+                            onCheckedChange = { enableEncryption = it },
+                            colors = CheckboxDefaults.colors(checkedColor = AccentCyan, checkmarkColor = Color.Black)
+                        )
+                        Text("Enable Password Encryption", color = Color.White, fontSize = 13.sp)
+                    }
+
+                    AnimatedVisibility(visible = enableEncryption) {
+                        OutlinedTextField(
+                            value = embedPassword,
+                            onValueChange = { embedPassword = it },
+                            label = { Text("Enter Password") },
+                            visualTransformation = if (showEmbedPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showEmbedPassword = !showEmbedPassword }) {
+                                    Text(if (showEmbedPassword) "👁️" else "🔒", fontSize = 14.sp)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentCyan,
+                                unfocusedBorderColor = CardBorder,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Action Button
+            val canEmbed = !isProcessing && hostImageUri != null && payloadVideoUri != null && (!enableEncryption || embedPassword.isNotEmpty())
+            Button(
+                onClick = { saveCarrierLauncher.launch(hostImageName?.substringBeforeLast('.') + "_carrier.png") },
+                enabled = canEmbed,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentBlue,
+                    disabledContainerColor = Color(0xFF1E293B),
+                    contentColor = Color.White,
+                    disabledContentColor = Color.Gray
+                )
+            ) {
+                Text(
+                    text = if (isProcessing) "⏳ Streaming Carrier..." else "🚀 Embed & Conceal Video into Image",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+        }
+
+        // TAB 2: EXTRACT
+        if (selectedTab == 1) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🖼️ Select Carrier Image", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { pickCarrierLauncher.launch("image/*") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(CardBorder, CardBorder))),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("Browse...")
+                        }
+                    }
+                    if (carrierName != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(carrierName!!, color = AccentCyan, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            inspectedInfo?.let { info ->
+                if (info.isEncrypted) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardBg),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("🔐 Password Required", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = extractPassword,
+                                onValueChange = { extractPassword = it },
+                                label = { Text("Password") },
+                                visualTransformation = if (showExtractPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showExtractPassword = !showExtractPassword }) {
+                                        Text(if (showExtractPassword) "👁️" else "🔒", fontSize = 14.sp)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(6.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentCyan,
+                                    unfocusedBorderColor = CardBorder,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            // Extract Action Button
+            val canExtract = !isProcessing && carrierUri != null
+            Button(
+                onClick = {
+                    val defaultName = inspectedInfo?.originalFilename ?: "extracted_video.mp4"
+                    saveExtractedLauncher.launch(defaultName)
+                },
+                enabled = canExtract,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EmeraldSuccess,
+                    disabledContainerColor = Color(0xFF1E293B),
+                    contentColor = Color.White,
+                    disabledContentColor = Color.Gray
+                )
+            ) {
+                Text(
+                    text = if (isProcessing) "⏳ Extracting..." else "🔓 Extract Hidden Video",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+        }
+
+        // TAB 3: INSPECT
+        if (selectedTab == 2) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, CardBorder, RoundedCornerShape(8.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🔍 Inspect Image", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { pickCarrierLauncher.launch("image/*") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(CardBorder, CardBorder))),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("Browse...")
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            inspectedInfo?.let { info ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkNavy),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, EmeraldSuccess, RoundedCornerShape(8.dp))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("✅ Valid Secret PNG Carrier Detected", color = EmeraldSuccess, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("• Original Name: ${info.originalFilename}", color = Color.White, fontSize = 13.sp)
+                        Text("• Video Size: ${formatBytes(info.payloadSize)}", color = Color.White, fontSize = 13.sp)
+                        Text("• Encrypted: ${if (info.isEncrypted) "Yes (Password Protected)" else "No"}", color = Color.White, fontSize = 13.sp)
+                        Text("• Checksum: ${info.sha256Hex}", color = TextMuted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // Report summary
+        lastReport?.let { report ->
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = DarkNavy),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, EmeraldSuccess, RoundedCornerShape(8.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("🎉 Operation Report", color = EmeraldSuccess, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text("• File: ${report.originalFilename}", color = Color.White, fontSize = 13.sp)
-                    Text("• Size: ${formatBytes(report.originalFileSize)}", color = Color.White, fontSize = 13.sp)
-                    Text("• Verified SHA-256 Checksum", color = Color(0xFFA7F3D0), fontSize = 12.sp)
+                    Text("• Size: ${formatBytes(report.payloadSize)}", color = Color.White, fontSize = 13.sp)
+                    Text("• SHA-256 / BLAKE3: ${report.sha256Hex}", color = TextMuted, fontSize = 11.sp)
                 }
             }
         }

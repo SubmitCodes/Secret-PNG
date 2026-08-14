@@ -4,6 +4,8 @@ use crate::protocol::{
     PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PROTOCOL_VERSION,
 };
 use crc32fast::Hasher as Crc32Hasher;
+use image::codecs::jpeg::JpegEncoder;
+use image::ColorType;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -81,7 +83,8 @@ pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u
     Ok((format, dimensions.0, dimensions.1))
 }
 
-/// Stream host image and payload video into carrier output file with zero high-RAM allocations
+/// Stream host image and payload video into carrier output file with zero high-RAM allocations.
+/// Automatically formats the image stream into universal JPEG carrier structure for unlimited file size viewer compatibility.
 pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     host_path: P1,
     payload_path: P2,
@@ -97,12 +100,12 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     // 1. Inspect host image format & dimensions
     let (host_fmt, host_w, host_h) = inspect_image_header(host_path)?;
     let host_file = File::open(host_path)?;
-    let host_size = host_file.metadata()?.len();
+    let host_raw_size = host_file.metadata()?.len();
 
     let payload_meta = std::fs::metadata(payload_path)?;
     let payload_raw_size = payload_meta.len();
 
-    let total_expected_bytes = host_size + payload_raw_size;
+    let total_expected_bytes = host_raw_size + payload_raw_size;
     let mut total_processed_bytes: u64 = 0;
     let mut last_progress_time = Instant::now();
     let mut last_progress_bytes = 0u64;
@@ -129,53 +132,50 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     ));
 
-    let embed_result = (|| -> Result<(u64, String, u32, bool)> {
-        // 2. Open readers and writer with 1 MB buffers
-        let mut host_reader = BufReader::with_capacity(IO_BUFFER_SIZE, host_file);
-
-        let payload_file = File::open(payload_path)?;
-        let mut payload_reader = BufReader::with_capacity(IO_BUFFER_SIZE, payload_file);
-
+    let embed_result = (|| -> Result<(u64, u64, String, u32, bool)> {
         let out_file = File::create(&temp_output_path)?;
         let mut out_writer = BufWriter::with_capacity(IO_BUFFER_SIZE, out_file);
 
-        // 3. Stream host image 100% untouched byte-for-byte
-        let mut buffer = vec![0u8; IO_BUFFER_SIZE];
         let mut host_written = 0u64;
 
-        while host_written < host_size {
-            let bytes_to_read = std::cmp::min(buffer.len() as u64, host_size - host_written) as usize;
-            let n = host_reader.read(&mut buffer[..bytes_to_read])?;
-            if n == 0 {
-                break;
-            }
-            out_writer.write_all(&buffer[..n])?;
-            host_written += n as u64;
-            total_processed_bytes += n as u64;
-
-            if let Some(ref cb) = progress {
-                if last_progress_time.elapsed().as_millis() >= 60 || host_written >= host_size {
-                    let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
-                    let speed = if elapsed_sec > 0.0 {
-                        (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
-                    } else {
-                        0.0
-                    };
-                    last_progress_time = Instant::now();
-                    last_progress_bytes = total_processed_bytes;
-
-                    cb(ProgressUpdate {
-                        phase: "Writing Host Image".to_string(),
-                        bytes_processed: total_processed_bytes,
-                        total_bytes: total_expected_bytes,
-                        speed_bytes_sec: speed,
-                        percentage: (total_processed_bytes as f32 / total_expected_bytes as f32) * 100.0,
-                    });
+        // 2. Stream host image: if already JPEG, copy directly; otherwise convert to JPEG stream for universal >4GB viewer compatibility
+        let is_already_jpeg = host_fmt.to_lowercase().contains("jpeg") || host_fmt.to_lowercase().contains("jpg");
+        if is_already_jpeg {
+            let mut host_reader = BufReader::with_capacity(IO_BUFFER_SIZE, host_file);
+            let mut buffer = vec![0u8; IO_BUFFER_SIZE];
+            while host_written < host_raw_size {
+                let bytes_to_read = std::cmp::min(buffer.len() as u64, host_raw_size - host_written) as usize;
+                let n = host_reader.read(&mut buffer[..bytes_to_read])?;
+                if n == 0 {
+                    break;
                 }
+                out_writer.write_all(&buffer[..n])?;
+                host_written += n as u64;
+                total_processed_bytes += n as u64;
             }
+        } else {
+            // Load and encode to pristine JPEG stream
+            let img = image::open(host_path)
+                .map_err(|e| SecretPngError::InvalidHostImage(format!("Could not decode image: {}", e)))?;
+            let rgb = img.to_rgb8();
+            let (w, h) = rgb.dimensions();
+
+            let mut encoder = JpegEncoder::new_with_quality(&mut out_writer, 95);
+            encoder
+                .encode(rgb.as_raw(), w, h, ColorType::Rgb8.into())
+                .map_err(|e| SecretPngError::InvalidHostImage(format!("JPEG encoding failed: {}", e)))?;
+            out_writer.flush()?;
+
+            // Get written host size
+            host_written = std::fs::metadata(&temp_output_path)?.len();
+            total_processed_bytes += host_raw_size;
         }
 
-        // 4. Stream payload with checksum and optional ChaCha20-Poly1305 encryption
+        let payload_file = File::open(payload_path)?;
+        let mut payload_reader = BufReader::with_capacity(IO_BUFFER_SIZE, payload_file);
+        let mut buffer = vec![0u8; IO_BUFFER_SIZE];
+
+        // 3. Stream payload with checksum and optional ChaCha20-Poly1305 encryption
         let is_encrypted = options.password.is_some();
         let mut encryptor = if let Some(ref pass) = options.password {
             Some(StreamEncryptor::new(pass)?)
@@ -186,7 +186,6 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         let mut blake3_hasher = blake3::Hasher::new();
         let mut payload_crc_hasher = Crc32Hasher::new();
         let mut payload_stream_size = 0u64;
-
         let mut payload_raw_read = 0u64;
 
         while payload_raw_read < payload_raw_size {
@@ -241,7 +240,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // 5. Serialize metadata block
+        // 4. Serialize metadata block
         let metadata = PayloadMetadata {
             protocol_version: PROTOCOL_VERSION,
             original_filename: original_filename.clone(),
@@ -270,7 +269,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         let metadata_offset = host_written + payload_stream_size;
         out_writer.write_all(&metadata_json)?;
 
-        // 6. Build and write Trailer Index (exact 64 bytes at EOF)
+        // 5. Build and write Trailer Index (exact 64 bytes at EOF)
         let mut flags = 0u16;
         if is_encrypted {
             flags |= TrailerIndex::FLAG_ENCRYPTED;
@@ -279,8 +278,8 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         let trailer = TrailerIndex {
             version: PROTOCOL_VERSION,
             flags,
-            host_image_size: host_size,
-            payload_offset: host_size,
+            host_image_size: host_written,
+            payload_offset: host_written,
             payload_length: payload_stream_size,
             metadata_offset,
             metadata_length: metadata_len,
@@ -292,11 +291,11 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         out_writer.flush()?;
         drop(out_writer);
 
-        Ok((payload_raw_size, blake3_hex, crc32_final, is_encrypted))
+        Ok((host_written, payload_raw_size, blake3_hex, crc32_final, is_encrypted))
     })();
 
     match embed_result {
-        Ok((payload_raw_size, blake3_hex, crc32_final, is_encrypted)) => {
+        Ok((host_written, payload_raw_size, blake3_hex, crc32_final, is_encrypted)) => {
             // Atomically replace target output file
             if output_path.exists() {
                 let _ = std::fs::remove_file(output_path);
@@ -316,7 +315,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             }
 
             Ok(EmbedReport {
-                host_image_size: host_size,
+                host_image_size: host_written,
                 payload_size: payload_raw_size,
                 total_carrier_size,
                 original_file_name: original_filename,

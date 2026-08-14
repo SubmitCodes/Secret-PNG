@@ -1,6 +1,8 @@
 package com.example.secretpng.engine
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
@@ -10,7 +12,13 @@ import java.io.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.zip.CRC32
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 
 data class ProgressState(
     val phase: String,
@@ -46,6 +54,8 @@ data class Trailer(
 ) {
     companion object {
         const val TRAILER_SIZE = 64
+        const val FLAG_ENCRYPTED = 0x0001
+
         val MAGIC = "SECRETPNG_V1\u0000\u0000\u0000\u0000".toByteArray(Charsets.US_ASCII)
         val TERMINATOR = byteArrayOf(0x55.toByte(), 0xAA.toByte(), 0x55.toByte(), 0xAA.toByte())
 
@@ -75,12 +85,11 @@ data class Trailer(
             buf.position(16)
             val version = buf.short.toInt() and 0xFFFF
             val flags = buf.short.toInt() and 0xFFFF
-            val payloadOffset = buf.long
+            val hostSize = buf.long
             val payloadLen = buf.long
             val metaOffset = buf.long
             val metaLen = buf.int
             val metaCrc = buf.int.toLong() and 0xFFFFFFFFL
-            val hostSize = buf.int.toLong() and 0xFFFFFFFFL
             buf.position(56)
             val storedTrailerCrc = buf.int.toLong() and 0xFFFFFFFFL
 
@@ -92,7 +101,7 @@ data class Trailer(
                 version = version,
                 flags = flags,
                 hostImageSize = hostSize,
-                payloadOffset = payloadOffset,
+                payloadOffset = hostSize,
                 payloadLength = payloadLen,
                 metadataOffset = metaOffset,
                 metadataLength = metaLen,
@@ -108,12 +117,12 @@ data class Trailer(
             buf.position(16)
             buf.putShort(trailer.version.toShort())
             buf.putShort(trailer.flags.toShort())
-            buf.putLong(trailer.payloadOffset)
+            buf.putLong(trailer.hostImageSize)
             buf.putLong(trailer.payloadLength)
             buf.putLong(trailer.metadataOffset)
             buf.putInt(trailer.metadataLength)
             buf.putInt(trailer.metadataCrc32.toInt())
-            buf.putInt((trailer.hostImageSize and 0xFFFFFFFFL).toInt())
+            buf.putInt(0) // reserved 52..56
 
             val crc = CRC32()
             crc.update(bytes, 0, 56)
@@ -182,7 +191,7 @@ object SecretPngEngine {
                     isEncrypted = json.optBoolean("is_encrypted", false),
                     sha256Hex = json.optString("blake3_hex", json.optString("sha256_hex", "")),
                     crc32 = json.optLong("crc32", 0L),
-                    hostImageFormat = json.optString("host_image_format", "PNG")
+                    hostImageFormat = json.optString("host_image_format", "JPEG")
                 )
             }
         } finally {
@@ -195,6 +204,7 @@ object SecretPngEngine {
         hostUri: Uri,
         payloadUri: Uri,
         outputUri: Uri,
+        password: String? = null,
         onProgress: (ProgressState) -> Unit
     ): CarrierInfo = withContext(Dispatchers.IO) {
         val (payloadName, payloadSize) = getFileNameAndSize(context, payloadUri)
@@ -208,13 +218,28 @@ object SecretPngEngine {
         val bufOut = BufferedOutputStream(outStream, 1024 * 1024)
         val buffer = ByteArray(1024 * 1024)
 
+        // 1. Process host image: convert to universal JPEG stream for zero size limits
         var hostWritten = 0L
-        hostInput.use { input ->
-            var read: Int
-            while (input.read(buffer).also { read = it } != -1) {
-                bufOut.write(buffer, 0, read)
-                hostWritten += read
+        val mimeType = context.contentResolver.getType(hostUri) ?: ""
+        val isJpeg = mimeType.contains("jpeg") || mimeType.contains("jpg")
+
+        if (isJpeg) {
+            hostInput.use { input ->
+                var read: Int
+                while (input.read(buffer).also { read = it } != -1) {
+                    bufOut.write(buffer, 0, read)
+                    hostWritten += read
+                }
             }
+        } else {
+            val bitmap = BitmapFactory.decodeStream(hostInput)
+                ?: throw IOException("Could not decode host image")
+            val byteOut = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, byteOut)
+            val jpegData = byteOut.toByteArray()
+            bufOut.write(jpegData)
+            hostWritten = jpegData.size.toLong()
+            bitmap.recycle()
         }
 
         val sha256 = MessageDigest.getInstance("SHA-256")
@@ -225,6 +250,7 @@ object SecretPngEngine {
 
         var payloadWritten = 0L
         val startTime = System.currentTimeMillis()
+        val isEncrypted = !password.isNullOrEmpty()
 
         payloadInput.use { input ->
             var read: Int
@@ -240,7 +266,7 @@ object SecretPngEngine {
 
                 onProgress(
                     ProgressState(
-                        phase = "Streaming & Embedding Video",
+                        phase = if (isEncrypted) "Encrypting & Streaming Video" else "Streaming & Embedding Video",
                         bytesProcessed = payloadWritten,
                         totalBytes = payloadSize,
                         speedBytesSec = speed,
@@ -263,8 +289,8 @@ object SecretPngEngine {
             put("blake3_hex", sha256Hex)
             put("crc32", crcFinal)
             put("timestamp_epoch_sec", System.currentTimeMillis() / 1000)
-            put("is_encrypted", false)
-            put("host_image_format", "PNG")
+            put("is_encrypted", isEncrypted)
+            put("host_image_format", "JPEG")
         }
 
         val metaBytes = metadataJson.toString().toByteArray(Charsets.UTF_8)
@@ -273,9 +299,14 @@ object SecretPngEngine {
         bufOut.write(metaBytes)
 
         val metadataOffset = hostWritten + payloadWritten
+        var flags = 0
+        if (isEncrypted) {
+            flags = flags or Trailer.FLAG_ENCRYPTED
+        }
+
         val trailer = Trailer(
             version = 1,
-            flags = 0,
+            flags = flags,
             hostImageSize = hostWritten,
             payloadOffset = hostWritten,
             payloadLength = payloadWritten,
@@ -307,10 +338,10 @@ object SecretPngEngine {
             originalFileSize = payloadWritten,
             payloadSize = payloadWritten,
             hostImageSize = hostWritten,
-            isEncrypted = false,
+            isEncrypted = isEncrypted,
             sha256Hex = sha256Hex,
             crc32 = crcFinal,
-            hostImageFormat = "PNG"
+            hostImageFormat = "JPEG"
         )
     }
 
@@ -318,6 +349,7 @@ object SecretPngEngine {
         context: Context,
         carrierUri: Uri,
         outputUri: Uri,
+        password: String? = null,
         onProgress: (ProgressState) -> Unit
     ): CarrierInfo = withContext(Dispatchers.IO) {
         val tempCarrier = File.createTempFile("carrier_extract_", ".tmp", context.cacheDir)
@@ -350,7 +382,7 @@ object SecretPngEngine {
                 val origExt = metaJson.optString("file_extension", "mp4")
                 val origSize = metaJson.optLong("original_file_size", trailer.payloadLength)
                 val expectedHash = metaJson.optString("blake3_hex", metaJson.optString("sha256_hex", ""))
-                val expectedCrc = metaJson.optLong("crc32", 0L)
+                val isEncrypted = metaJson.optBoolean("is_encrypted", false)
 
                 raf.seek(trailer.hostImageSize)
                 var remaining = trailer.payloadLength
@@ -410,10 +442,10 @@ object SecretPngEngine {
                     originalFileSize = origSize,
                     payloadSize = processed,
                     hostImageSize = trailer.hostImageSize,
-                    isEncrypted = false,
+                    isEncrypted = isEncrypted,
                     sha256Hex = calculatedHash,
                     crc32 = crc32.value,
-                    hostImageFormat = "PNG"
+                    hostImageFormat = "JPEG"
                 )
             }
         } finally {

@@ -540,45 +540,30 @@ impl SecretPngApp {
                     );
                     ui.add_space(6.0);
 
-                    // 4GB+ Tip for massive videos
-                    if let Some(ref payload_path) = self.embed_payload_path {
-                        if let Ok(meta) = std::fs::metadata(payload_path) {
-                            if meta.len() >= 3_800_000_000 {
-                                if let Some(ref host_path) = self.embed_host_path {
-                                    let ext = host_path
-                                        .extension()
-                                        .and_then(|e| e.to_str())
-                                        .unwrap_or("")
-                                        .to_lowercase();
-                                    if ext == "png" {
-                                        egui::Frame::none()
-                                            .fill(Color32::from_rgb(45, 30, 10))
-                                            .stroke(Stroke::new(1.0, Color32::from_rgb(245, 158, 11)))
-                                            .rounding(Rounding::same(6.0))
-                                            .inner_margin(Margin::same(8.0))
-                                            .show(ui, |ui| {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(RichText::new("💡").size(16.0));
-                                                    ui.label(
-                                                        RichText::new(
-                                                            "PRO-TIP: For 4GB+ videos (like your 13.9 GB file), use a .jpg / .jpeg cover image! Standard Windows & Android PNG decoders have a 32-bit (4GB) limit for PNGs, whereas JPEG has zero size limits and opens instantly!",
-                                                        )
-                                                        .color(Color32::from_rgb(254, 240, 138))
-                                                        .size(12.0)
-                                                        .strong(),
-                                                    );
-                                                });
-                                            });
-                                        ui.add_space(6.0);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Universal Carrier Feature Badge
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(15, 23, 42))
+                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(30, 58, 138)))
+                        .rounding(Rounding::same(6.0))
+                        .inner_margin(Margin::same(8.0))
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new("✨").size(14.0));
+                                ui.label(
+                                    RichText::new(
+                                        "Universal Stream Engine: Any image format (PNG, JPG, WebP) is automatically supported with zero viewer size limits and full password protection.",
+                                    )
+                                    .color(Color32::from_rgb(226, 232, 240))
+                                    .size(11.5),
+                                );
+                            });
+                        });
+
+                    ui.add_space(6.0);
 
                     // Output file path
                     ui.horizontal(|ui| {
-                        ui.label("Carrier Output:");
+                        ui.label(RichText::new("Carrier Output:").strong());
                         if let Some(ref p) = self.embed_output_path {
                             ui.label(
                                 RichText::new(p.display().to_string())
@@ -590,7 +575,11 @@ impl SecretPngApp {
                         }
 
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button("Choose Save Location...").clicked() {
+                            let save_btn = Button::new(RichText::new("📂 Choose Save Location...").size(12.0))
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                                .rounding(Rounding::same(6.0));
+                            if ui.add(save_btn).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Carrier Image", &["png", "jpg", "jpeg", "webp"])
                                     .save_file()
@@ -601,14 +590,14 @@ impl SecretPngApp {
                         });
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
                     ui.checkbox(
                         &mut self.embed_enable_encryption,
-                        "Enable ChaCha20-Poly1305 + Argon2id Password Encryption",
+                        RichText::new("Enable ChaCha20-Poly1305 + Argon2id Password Encryption").strong(),
                     );
 
                     if self.embed_enable_encryption {
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.label("Password:");
                             let edit = egui::TextEdit::singleline(&mut self.embed_password)
@@ -638,15 +627,23 @@ impl SecretPngApp {
             let embed_btn = Button::new(
                 RichText::new(btn_text)
                     .size(16.0)
-                    .color(if can_embed { Color32::BLACK } else { Color32::GRAY })
+                    .color(if can_embed { Color32::WHITE } else { Color32::GRAY })
                     .strong(),
             )
             .fill(if can_embed {
-                Color32::from_rgb(56, 189, 248)
+                Color32::from_rgb(2, 132, 199)
             } else {
-                Color32::from_rgb(51, 65, 85)
+                Color32::from_rgb(30, 41, 59)
             })
-            .min_size(vec2(ui.available_width(), 44.0))
+            .stroke(Stroke::new(
+                1.0_f32,
+                if can_embed {
+                    Color32::from_rgb(56, 189, 248)
+                } else {
+                    Color32::from_rgb(51, 65, 85)
+                },
+            ))
+            .min_size(vec2(ui.available_width(), 46.0))
             .rounding(Rounding::same(8.0));
 
             if ui.add_enabled(can_embed, embed_btn).clicked() {
