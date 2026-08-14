@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.secretpng.engine.CarrierInfo
 import com.example.secretpng.engine.ProgressState
-import com.example.secretpng.engine.SecretPngEngine
+import com.example.secretpng.engine.StowEngine
 import kotlinx.coroutines.launch
 
 // Color Palette matching Desktop App
@@ -80,7 +80,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     ) { uri: Uri? ->
         if (uri != null) {
             hostImageUri = uri
-            hostImageName = SecretPngEngine.getFileNameAndSize(context, uri).first
+            hostImageName = StowEngine.getFileNameAndSize(context, uri).first
         }
     }
 
@@ -89,7 +89,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     ) { uri: Uri? ->
         if (uri != null) {
             payloadFileUri = uri
-            payloadFileName = SecretPngEngine.getFileNameAndSize(context, uri).first
+            payloadFileName = StowEngine.getFileNameAndSize(context, uri).first
         }
     }
 
@@ -98,10 +98,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
     ) { uri: Uri? ->
         if (uri != null) {
             carrierUri = uri
-            carrierName = SecretPngEngine.getFileNameAndSize(context, uri).first
+            carrierName = StowEngine.getFileNameAndSize(context, uri).first
             scope.launch {
                 try {
-                    val info = SecretPngEngine.inspect(context, uri)
+                    val info = StowEngine.inspect(context, uri)
                     inspectedInfo = info
                 } catch (e: Exception) {
                     inspectedInfo = null
@@ -118,7 +118,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             isProcessing = true
             scope.launch {
                 try {
-                    val info = SecretPngEngine.embed(
+                    val info = StowEngine.embed(
                         context = context,
                         hostUri = hostImageUri!!,
                         payloadUri = payloadFileUri!!,
@@ -145,7 +145,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             isProcessing = true
             scope.launch {
                 try {
-                    val info = SecretPngEngine.extract(
+                    val info = StowEngine.extract(
                         context = context,
                         carrierUri = carrierUri!!,
                         outputUri = outUri,

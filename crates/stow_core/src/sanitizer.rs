@@ -1,4 +1,4 @@
-use crate::error::{Result, SecretPngError};
+use crate::error::{Result, StowError};
 use crate::extractor::inspect_carrier;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -39,7 +39,7 @@ pub fn strip_payload_to_file<P1: AsRef<Path>, P2: AsRef<Path>>(
         let to_read = std::cmp::min(buffer.len() as u64, remaining) as usize;
         let n = reader.read(&mut buffer[..to_read])?;
         if n == 0 {
-            return Err(SecretPngError::CorruptedTrailer);
+            return Err(StowError::CorruptedTrailer);
         }
         writer.write_all(&buffer[..n])?;
         remaining -= n as u64;

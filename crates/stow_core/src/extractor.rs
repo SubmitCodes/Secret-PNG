@@ -1,6 +1,6 @@
 use crate::crypto::StreamDecryptor;
 use crate::embedder::{ProgressCallback, ProgressUpdate};
-use crate::error::{Result, SecretPngError};
+use crate::error::{Result, StowError};
 use crate::protocol::{
     PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, TRAILER_SIZE,
 };
@@ -28,7 +28,7 @@ pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex,
     let total_len = file.metadata()?.len();
 
     if total_len < TRAILER_SIZE as u64 {
-        return Err(SecretPngError::NoCarrierDataFound);
+        return Err(StowError::NoCarrierDataFound);
     }
 
     let mut trailer_buf = [0u8; TRAILER_SIZE];
@@ -47,12 +47,12 @@ pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex,
     crc_hasher.update(&metadata_buf);
     let calculated_crc = crc_hasher.finalize();
     if calculated_crc != trailer.metadata_crc32 {
-        return Err(SecretPngError::CorruptedMetadata("Metadata CRC32 mismatch".into()));
+        return Err(StowError::CorruptedMetadata("Metadata CRC32 mismatch".into()));
     }
 
     // 4. Deserialize metadata JSON
     let metadata: PayloadMetadata = serde_json::from_slice(&metadata_buf)
-        .map_err(|e| SecretPngError::CorruptedMetadata(format!("JSON parsing error: {}", e)))?;
+        .map_err(|e| StowError::CorruptedMetadata(format!("JSON parsing error: {}", e)))?;
 
     Ok((trailer, metadata))
 }
@@ -77,7 +77,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     // 2. Password verification
     if metadata.is_encrypted && password.is_none() {
-        return Err(SecretPngError::PasswordRequired);
+        return Err(StowError::PasswordRequired);
     }
 
     // 3. Determine output destination path
@@ -118,10 +118,10 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     let result = (|| -> Result<()> {
         if metadata.is_encrypted {
-            let enc_meta = metadata.encryption.as_ref().ok_or(SecretPngError::CorruptedMetadata(
+            let enc_meta = metadata.encryption.as_ref().ok_or(StowError::CorruptedMetadata(
                 "Missing encryption parameters".into(),
             ))?;
-            let pass = password.ok_or(SecretPngError::PasswordRequired)?;
+            let pass = password.ok_or(StowError::PasswordRequired)?;
             let mut decryptor = StreamDecryptor::new(pass, enc_meta)?;
 
             let mut carrier_take = (&mut carrier_reader).take(trailer.payload_length);
@@ -159,7 +159,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
                 let to_read = std::cmp::min(buffer.len() as u64, remaining) as usize;
                 let n = carrier_reader.read(&mut buffer[..to_read])?;
                 if n == 0 {
-                    return Err(SecretPngError::CorruptedTrailer);
+                    return Err(StowError::CorruptedTrailer);
                 }
 
                 let chunk = &buffer[..n];
@@ -208,7 +208,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     if calculated_blake3 != metadata.blake3_hex || calculated_crc != metadata.crc32 {
         let _ = std::fs::remove_file(&out_path);
-        return Err(SecretPngError::ChecksumMismatch {
+        return Err(StowError::ChecksumMismatch {
             expected: metadata.blake3_hex,
             calculated: calculated_blake3,
         });

@@ -40,7 +40,7 @@ fn c_str_to_str<'a>(ptr: *const c_char) -> std::result::Result<&'a str, i32> {
 
 /// Retrieve the last error message on current thread as a heap-allocated C string
 #[no_mangle]
-pub extern "C" fn secret_png_last_error() -> *mut c_char {
+pub extern "C" fn stow_last_error() -> *mut c_char {
     LAST_ERROR.with(|cell| {
         if let Some(ref err) = *cell.borrow() {
             CString::new(err.clone()).unwrap_or_default().into_raw()
@@ -52,7 +52,7 @@ pub extern "C" fn secret_png_last_error() -> *mut c_char {
 
 /// Free a string returned by any FFI function
 #[no_mangle]
-pub extern "C" fn secret_png_free_string(ptr: *mut c_char) {
+pub extern "C" fn stow_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             let _ = CString::from_raw(ptr);
@@ -62,7 +62,7 @@ pub extern "C" fn secret_png_free_string(ptr: *mut c_char) {
 
 /// Check if file contains carrier metadata (1 = true, 0 = false, negative = error)
 #[no_mangle]
-pub extern "C" fn secret_png_has_carrier(carrier_path: *const c_char) -> i32 {
+pub extern "C" fn stow_has_carrier(carrier_path: *const c_char) -> i32 {
     let path_str = match c_str_to_str(carrier_path) {
         Ok(s) => s,
         Err(code) => return code,
@@ -76,7 +76,7 @@ pub extern "C" fn secret_png_has_carrier(carrier_path: *const c_char) -> i32 {
 
 /// Inspect carrier image and return serialized JSON metadata
 #[no_mangle]
-pub extern "C" fn secret_png_inspect_json(
+pub extern "C" fn stow_inspect_json(
     carrier_path: *const c_char,
     out_json: *mut *mut c_char,
 ) -> i32 {
@@ -120,7 +120,7 @@ pub extern "C" fn secret_png_inspect_json(
 
 /// Embed a video file into a host image with progress callback
 #[no_mangle]
-pub extern "C" fn secret_png_embed(
+pub extern "C" fn stow_embed(
     host_path: *const c_char,
     payload_path: *const c_char,
     output_path: *const c_char,
@@ -201,7 +201,7 @@ pub extern "C" fn secret_png_embed(
 
 /// Extract embedded video from carrier image
 #[no_mangle]
-pub extern "C" fn secret_png_extract(
+pub extern "C" fn stow_extract(
     carrier_path: *const c_char,
     output_path: *const c_char,
     password: *const c_char,
@@ -272,7 +272,7 @@ pub extern "C" fn secret_png_extract(
 
 /// Strip embedded payload to restore original image
 #[no_mangle]
-pub extern "C" fn secret_png_strip(
+pub extern "C" fn stow_strip(
     carrier_path: *const c_char,
     output_path: *const c_char,
     out_report_json: *mut *mut c_char,
@@ -307,3 +307,11 @@ pub extern "C" fn secret_png_strip(
         }
     }
 }
+
+// Backward compatibility aliases
+#[no_mangle]
+pub extern "C" fn secret_png_last_error() -> *mut std::os::raw::c_char { stow_last_error() }
+#[no_mangle]
+pub extern "C" fn secret_png_free_string(ptr: *mut std::os::raw::c_char) { stow_free_string(ptr) }
+#[no_mangle]
+pub extern "C" fn secret_png_has_carrier(carrier_path: *const std::os::raw::c_char) -> i32 { stow_has_carrier(carrier_path) }

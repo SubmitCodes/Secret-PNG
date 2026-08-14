@@ -1,45 +1,44 @@
+use std::io;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum SecretPngError {
+pub enum StowError {
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
-    #[error("Host image is invalid or unrecognized format: {0}")]
+    #[error("Invalid host cover image: {0}")]
     InvalidHostImage(String),
 
-    #[error("No secret carrier data found in the image")]
+    #[error("No concealed carrier data found in the image")]
     NoCarrierDataFound,
 
-    #[error("Unsupported carrier protocol version: {0} (max supported: {1})")]
-    UnsupportedVersion(u16, u16),
-
-    #[error("Trailer checksum validation failed (file may be truncated or corrupted)")]
+    #[error("Corrupted carrier trailer header")]
     CorruptedTrailer,
 
     #[error("Corrupted metadata block: {0}")]
     CorruptedMetadata(String),
 
-    #[error("Integrity check failed: payload checksum mismatch (expected: {expected}, calculated: {calculated})")]
+    #[error("Carrier payload is password protected, but no password was provided")]
+    PasswordRequired,
+
+    #[error("Decryption failed. Invalid password or corrupted payload")]
+    DecryptionFailed,
+
+    #[error("Payload checksum verification failed! Expected {expected}, got {calculated}")]
     ChecksumMismatch {
         expected: String,
         calculated: String,
     },
 
-    #[error("Decryption failed: incorrect password or corrupted ciphertext")]
-    DecryptionFailed,
-
-    #[error("This embedded payload is encrypted with a password, but none was provided")]
-    PasswordRequired,
-
-    #[error("Password was provided, but the embedded payload is unencrypted")]
-    PasswordNotExpected,
+    #[error("Unsupported protocol version: {0} (engine supports {1})")]
+    UnsupportedVersion(u16, u16),
 
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
-    #[error("Image format error: {0}")]
-    ImageError(String),
+    #[error("Operation cancelled by user")]
+    Cancelled,
 }
 
-pub type Result<T> = std::result::Result<T, SecretPngError>;
+pub type Result<T> = std::result::Result<T, StowError>;
+pub type SecretPngError = StowError;

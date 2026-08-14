@@ -135,7 +135,7 @@ data class Trailer(
     }
 }
 
-object SecretPngEngine {
+object StowEngine {
 
     fun getFileNameAndSize(context: Context, uri: Uri): Pair<String, Long> {
         var name = "payload.bin"
@@ -453,3 +453,5 @@ object SecretPngEngine {
         }
     }
 }
+
+typealias SecretPngEngine = StowEngine

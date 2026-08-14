@@ -1,4 +1,4 @@
-use crate::error::{Result, SecretPngError};
+use crate::error::{Result, StowError};
 use byteorder::{BigEndian, ByteOrder};
 use crc32fast::Hasher as Crc32Hasher;
 use serde::{Deserialize, Serialize};
@@ -99,17 +99,17 @@ impl TrailerIndex {
     /// Parse and validate from 64-byte slice
     pub fn from_bytes(buf: &[u8]) -> Result<Self> {
         if buf.len() != TRAILER_SIZE {
-            return Err(SecretPngError::CorruptedTrailer);
+            return Err(StowError::CorruptedTrailer);
         }
 
         // Validate Terminator
         if buf[60..64] != TRAILER_TERMINATOR {
-            return Err(SecretPngError::NoCarrierDataFound);
+            return Err(StowError::NoCarrierDataFound);
         }
 
         // Validate Magic
         if buf[0..16] != *TRAILER_MAGIC {
-            return Err(SecretPngError::NoCarrierDataFound);
+            return Err(StowError::NoCarrierDataFound);
         }
 
         // Validate CRC32 of trailer
@@ -118,12 +118,12 @@ impl TrailerIndex {
         let expected_crc = hasher.finalize();
         let stored_crc = BigEndian::read_u32(&buf[56..60]);
         if expected_crc != stored_crc {
-            return Err(SecretPngError::CorruptedTrailer);
+            return Err(StowError::CorruptedTrailer);
         }
 
         let version = BigEndian::read_u16(&buf[16..18]);
         if version > PROTOCOL_VERSION {
-            return Err(SecretPngError::UnsupportedVersion(version, PROTOCOL_VERSION));
+            return Err(StowError::UnsupportedVersion(version, PROTOCOL_VERSION));
         }
 
         let flags = BigEndian::read_u16(&buf[18..20]);

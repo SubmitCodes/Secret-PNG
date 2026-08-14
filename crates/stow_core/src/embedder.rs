@@ -1,5 +1,5 @@
 use crate::crypto::StreamEncryptor;
-use crate::error::{Result, SecretPngError};
+use crate::error::{Result, StowError};
 use crate::protocol::{
     PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PROTOCOL_VERSION,
 };
@@ -68,11 +68,11 @@ pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u
     let reader = BufReader::new(file);
     let img_reader = image::ImageReader::new(reader)
         .with_guessed_format()
-        .map_err(|e| SecretPngError::InvalidHostImage(format!("Could not guess image format: {}", e)))?;
+        .map_err(|e| StowError::InvalidHostImage(format!("Could not guess image format: {}", e)))?;
 
     let format = match img_reader.format() {
         Some(fmt) => format!("{:?}", fmt),
-        None => return Err(SecretPngError::InvalidHostImage("Unknown or unsupported image format".into())),
+        None => return Err(StowError::InvalidHostImage("Unknown or unsupported image format".into())),
     };
 
     let dimensions = match img_reader.into_dimensions() {
@@ -83,7 +83,7 @@ pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u
     Ok((format, dimensions.0, dimensions.1))
 }
 
-/// Stream host image and payload video into carrier output file with zero high-RAM allocations.
+/// Stream host image and payload file into carrier output file with zero high-RAM allocations.
 /// Automatically formats the image stream into universal JPEG carrier structure for unlimited file size viewer compatibility.
 pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     host_path: P1,
@@ -127,7 +127,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     // Use atomic temporary file to prevent truncating host if host == output
     let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
     let temp_output_path = parent.join(format!(
-        ".secret_png_tmp_{}_{}.tmp",
+        ".stow_tmp_{}_{}.tmp",
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     ));
@@ -156,14 +156,14 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         } else {
             // Load and encode to pristine JPEG stream
             let img = image::open(host_path)
-                .map_err(|e| SecretPngError::InvalidHostImage(format!("Could not decode image: {}", e)))?;
+                .map_err(|e| StowError::InvalidHostImage(format!("Could not decode image: {}", e)))?;
             let rgb = img.to_rgb8();
             let (w, h) = rgb.dimensions();
 
             let mut encoder = JpegEncoder::new_with_quality(&mut out_writer, 95);
             encoder
                 .encode(rgb.as_raw(), w, h, ColorType::Rgb8.into())
-                .map_err(|e| SecretPngError::InvalidHostImage(format!("JPEG encoding failed: {}", e)))?;
+                .map_err(|e| StowError::InvalidHostImage(format!("JPEG encoding failed: {}", e)))?;
             out_writer.flush()?;
 
             // Get written host size
@@ -259,7 +259,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         };
 
         let metadata_json = serde_json::to_vec(&metadata)
-            .map_err(|e| SecretPngError::CorruptedMetadata(format!("Serialization error: {}", e)))?;
+            .map_err(|e| StowError::CorruptedMetadata(format!("Serialization error: {}", e)))?;
         let metadata_len = metadata_json.len() as u32;
 
         let mut meta_crc_hasher = Crc32Hasher::new();

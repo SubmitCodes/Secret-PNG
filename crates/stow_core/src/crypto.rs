@@ -1,4 +1,4 @@
-use crate::error::{Result, SecretPngError};
+use crate::error::{Result, StowError};
 use crate::protocol::{EncryptionMetadata, DEFAULT_CHUNK_SIZE};
 use argon2::Argon2;
 use byteorder::{BigEndian, ByteOrder};
@@ -29,7 +29,7 @@ impl StreamEncryptor {
         let argon2 = Argon2::default();
         argon2
             .hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
-            .map_err(|e| SecretPngError::InvalidParameter(format!("Argon2 key derivation error: {}", e)))?;
+            .map_err(|e| StowError::InvalidParameter(format!("Argon2 key derivation error: {}", e)))?;
 
         let key = Key::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
@@ -59,7 +59,7 @@ impl StreamEncryptor {
         let ciphertext = self
             .cipher
             .encrypt(nonce, plaintext)
-            .map_err(|_| SecretPngError::DecryptionFailed)?;
+            .map_err(|_| StowError::DecryptionFailed)?;
 
         let mut len_buf = [0u8; 4];
         BigEndian::write_u32(&mut len_buf, ciphertext.len() as u32);
@@ -79,12 +79,12 @@ pub struct StreamDecryptor {
 impl StreamDecryptor {
     pub fn new(password: &str, metadata: &EncryptionMetadata) -> Result<Self> {
         let salt = hex::decode(&metadata.salt_hex)
-            .map_err(|_| SecretPngError::CorruptedMetadata("Invalid salt hex in metadata".into()))?;
+            .map_err(|_| StowError::CorruptedMetadata("Invalid salt hex in metadata".into()))?;
         let base_nonce_vec = hex::decode(&metadata.nonce_hex)
-            .map_err(|_| SecretPngError::CorruptedMetadata("Invalid nonce hex in metadata".into()))?;
+            .map_err(|_| StowError::CorruptedMetadata("Invalid nonce hex in metadata".into()))?;
 
         if salt.len() != SALT_LEN || base_nonce_vec.len() != NONCE_LEN {
-            return Err(SecretPngError::CorruptedMetadata("Invalid salt/nonce length".into()));
+            return Err(StowError::CorruptedMetadata("Invalid salt/nonce length".into()));
         }
 
         let mut base_nonce = [0u8; NONCE_LEN];
@@ -94,7 +94,7 @@ impl StreamDecryptor {
         let argon2 = Argon2::default();
         argon2
             .hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
-            .map_err(|e| SecretPngError::InvalidParameter(format!("Argon2 key derivation error: {}", e)))?;
+            .map_err(|e| StowError::InvalidParameter(format!("Argon2 key derivation error: {}", e)))?;
 
         let key = Key::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
@@ -112,13 +112,13 @@ impl StreamDecryptor {
         match reader.read_exact(&mut len_buf) {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(SecretPngError::Io(e)),
+            Err(e) => return Err(StowError::Io(e)),
         }
 
         let chunk_len = BigEndian::read_u32(&len_buf) as usize;
         // Limit max chunk length for safety (up to 2MB headroom)
         if chunk_len > (2 * 1024 * 1024) {
-            return Err(SecretPngError::CorruptedMetadata("Corrupted encrypted chunk length".into()));
+            return Err(StowError::CorruptedMetadata("Corrupted encrypted chunk length".into()));
         }
 
         let mut ciphertext = vec![0u8; chunk_len];
@@ -132,7 +132,7 @@ impl StreamDecryptor {
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext.as_ref())
-            .map_err(|_| SecretPngError::DecryptionFailed)?;
+            .map_err(|_| StowError::DecryptionFailed)?;
 
         Ok(Some(plaintext))
     }

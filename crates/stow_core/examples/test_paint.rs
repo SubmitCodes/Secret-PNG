@@ -23,7 +23,7 @@ fn main() {
     }
     File::create(video_path).unwrap().write_all(&video_data).unwrap();
 
-    // 3. Embed video into PNG using new seCr ancillary chunk mode
+    // 3. Embed file into image using new seCr ancillary chunk mode
     let embed_rep = embed_files(host_path, video_path, carrier_path, EmbedOptions::default(), None).unwrap();
     println!("Embedded successfully: total carrier size = {} bytes", embed_rep.total_carrier_size);
 

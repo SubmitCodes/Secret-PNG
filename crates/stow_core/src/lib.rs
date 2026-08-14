@@ -9,7 +9,7 @@ pub use embedder::{
     embed_files, infer_mime_type, inspect_image_header, EmbedOptions, EmbedReport,
     ProgressCallback, ProgressUpdate,
 };
-pub use error::{Result, SecretPngError};
+pub use error::{Result, StowError};
 pub use extractor::{
     extract_payload, has_carrier_payload, inspect_carrier, ExtractionReport,
 };
