@@ -531,12 +531,12 @@ impl StowApp {
                                     self.embed_host_format = Some(fmt);
                                     self.embed_host_path = Some(path.clone());
                                     self.host_thumbnail = Self::load_thumbnail(ctx, &path, "host_thumb");
-                                    if self.embed_output_path.is_none() {
-                                        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-                                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("carrier");
-                                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                                        self.embed_output_path = Some(parent.join(format!("{}_carrier.{}", stem, ext)));
-                                    }
+                                    
+                                    // Always automatically set output path with the exact same extension as host
+                                    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+                                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("carrier");
+                                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+                                    self.embed_output_path = Some(parent.join(format!("{}_carrier.{}", stem, ext)));
                                 }
                             }
                         });
@@ -687,7 +687,25 @@ impl StowApp {
                                 .stroke(Stroke::new(1.0_f32, card_border))
                                 .rounding(Rounding::same(6.0));
                             if ui.add(save_btn).clicked() {
-                                if let Some(path) = rfd::FileDialog::new().save_file() {
+                                let mut dialog = rfd::FileDialog::new();
+                                if let Some(ref host_path) = self.embed_host_path {
+                                    let parent = host_path.parent().unwrap_or_else(|| Path::new("."));
+                                    let stem = host_path.file_stem().and_then(|s| s.to_str()).unwrap_or("carrier");
+                                    let ext = host_path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+                                    dialog = dialog.set_directory(parent)
+                                        .set_file_name(&format!("{}_carrier.{}", stem, ext))
+                                        .add_filter("Host Carrier Format", &[ext])
+                                        .add_filter("All Files", &["*"]);
+                                }
+                                if let Some(mut path) = dialog.save_file() {
+                                    // Automatically ensure same extension as host if omitted
+                                    if path.extension().is_none() {
+                                        if let Some(ref host_path) = self.embed_host_path {
+                                            if let Some(ext) = host_path.extension() {
+                                                path.set_extension(ext);
+                                            }
+                                        }
+                                    }
                                     self.embed_output_path = Some(path);
                                 }
                             }
@@ -989,10 +1007,16 @@ impl StowApp {
                                     .stroke(Stroke::new(1.0_f32, card_border))
                                     .rounding(Rounding::same(6.0));
                                 if ui.add(change_btn).clicked() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .set_file_name(&meta.original_filename)
-                                        .save_file()
-                                    {
+                                    let mut dialog = rfd::FileDialog::new()
+                                        .set_file_name(&meta.original_filename);
+                                    if !meta.file_extension.is_empty() {
+                                        dialog = dialog.add_filter("Payload Format", &[&meta.file_extension]);
+                                    }
+                                    dialog = dialog.add_filter("All Files", &["*"]);
+                                    if let Some(mut path) = dialog.save_file() {
+                                        if path.extension().is_none() && !meta.file_extension.is_empty() {
+                                            path.set_extension(&meta.file_extension);
+                                        }
                                         self.extract_output_path = Some(path);
                                     }
                                 }
@@ -1202,7 +1226,24 @@ impl StowApp {
                                     .stroke(Stroke::new(1.0_f32, card_border))
                                     .rounding(Rounding::same(6.0));
                                 if ui.add(choose_btn).clicked() {
-                                    if let Some(path) = rfd::FileDialog::new().save_file() {
+                                    let mut dialog = rfd::FileDialog::new();
+                                    if let Some(ref p) = self.inspect_path {
+                                        let parent = p.parent().unwrap_or_else(|| Path::new("."));
+                                        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("clean");
+                                        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                                        dialog = dialog.set_directory(parent)
+                                            .set_file_name(&format!("{}_clean.{}", stem, ext))
+                                            .add_filter("Original Format", &[ext])
+                                            .add_filter("All Files", &["*"]);
+                                    }
+                                    if let Some(mut path) = dialog.save_file() {
+                                        if path.extension().is_none() {
+                                            if let Some(ref p) = self.inspect_path {
+                                                if let Some(ext) = p.extension() {
+                                                    path.set_extension(ext);
+                                                }
+                                            }
+                                        }
                                         self.sanitize_output_path = Some(path);
                                     }
                                 }
