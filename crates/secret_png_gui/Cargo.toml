@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Cross-platform Desktop and Mobile GUI application for Secret PNG carrier embedding and extraction."
+description = "Cross-platform Desktop and Mobile GUI application for Stow carrier embedding and extraction."
 
 [dependencies]
 secret_png_core = { path = "../secret_png_core" }
@@ -13,3 +13,6 @@ egui = { workspace = true }
 rfd = { workspace = true }
 crossbeam-channel = { workspace = true }
 image = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
