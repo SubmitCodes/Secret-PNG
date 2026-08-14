@@ -8,18 +8,9 @@ pub const TRAILER_MAGIC: &[u8; 16] = b"SECRETPNG_V1\x00\x00\x00\x00";
 pub const TRAILER_TERMINATOR: [u8; 4] = [0x55, 0xAA, 0x55, 0xAA];
 pub const TRAILER_SIZE: usize = 64;
 
-/// Safe chunk size for PNG ancillary chunks (64 KB to comply with libpng/WIC malloc limits)
-pub const PNG_SAFE_CHUNK_SIZE: usize = 64 * 1024;
-pub const DEFAULT_CHUNK_SIZE: usize = PNG_SAFE_CHUNK_SIZE;
-/// I/O buffer capacity for ultra-high throughput streaming (1 MB)
+/// Ultra-high throughput streaming buffer (1 MB)
 pub const IO_BUFFER_SIZE: usize = 1024 * 1024;
-
-pub const PNG_IEND_CHUNK: [u8; 12] = [
-    0x00, 0x00, 0x00, 0x00, // Length: 0
-    0x49, 0x45, 0x4E, 0x44, // Type: "IEND"
-    0xAE, 0x42, 0x60, 0x82, // CRC32
-];
-pub const PNG_SECR_TYPE: &[u8; 4] = b"seCr";
+pub const DEFAULT_CHUNK_SIZE: usize = IO_BUFFER_SIZE;
 
 /// Encryption metadata attached when payload is encrypted with a password
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,7 +19,7 @@ pub struct EncryptionMetadata {
     pub salt_hex: String,
     /// Hex-encoded 12-byte random base nonce for ChaCha20-Poly1305
     pub nonce_hex: String,
-    /// AEAD chunk size in bytes (e.g., 65536)
+    /// AEAD chunk size in bytes (e.g., 1048576)
     pub chunk_size: u32,
     /// Cipher algorithm identifier
     pub cipher: String,
@@ -54,7 +45,7 @@ pub struct PayloadMetadata {
     pub host_image_height: Option<u32>,
 }
 
-/// Fixed 64-byte trailing index structure
+/// Fixed 64-byte trailing index structure at exact EOF - 64
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrailerIndex {
     pub version: u16,
@@ -69,8 +60,6 @@ pub struct TrailerIndex {
 
 impl TrailerIndex {
     pub const FLAG_ENCRYPTED: u16 = 0x0001;
-    pub const FLAG_PNG_CHUNK: u16 = 0x0002;
-    pub const FLAG_JPEG_CHUNK: u16 = 0x0004;
 
     /// Serialize into exact 64-byte array
     pub fn to_bytes(&self) -> [u8; TRAILER_SIZE] {
@@ -82,8 +71,8 @@ impl TrailerIndex {
         BigEndian::write_u16(&mut buf[16..18], self.version);
         // 18..20: Flags
         BigEndian::write_u16(&mut buf[18..20], self.flags);
-        // 20..28: Payload offset (u64)
-        BigEndian::write_u64(&mut buf[20..28], self.payload_offset);
+        // 20..28: Host image size / payload offset (u64)
+        BigEndian::write_u64(&mut buf[20..28], self.host_image_size);
         // 28..36: Payload length (u64)
         BigEndian::write_u64(&mut buf[28..36], self.payload_length);
         // 36..44: Metadata offset (u64)
@@ -92,8 +81,8 @@ impl TrailerIndex {
         BigEndian::write_u32(&mut buf[44..48], self.metadata_length);
         // 48..52: Metadata CRC32 (u32)
         BigEndian::write_u32(&mut buf[48..52], self.metadata_crc32);
-        // 52..56: Host image size (lower 32-bits)
-        BigEndian::write_u32(&mut buf[52..56], (self.host_image_size & 0xFFFFFFFF) as u32);
+        // 52..56: Reserved (zero padding)
+        buf[52..56].fill(0);
 
         // 56..60: CRC32 of first 56 bytes
         let mut hasher = Crc32Hasher::new();
@@ -138,18 +127,17 @@ impl TrailerIndex {
         }
 
         let flags = BigEndian::read_u16(&buf[18..20]);
-        let payload_offset = BigEndian::read_u64(&buf[20..28]);
+        let host_image_size = BigEndian::read_u64(&buf[20..28]);
         let payload_length = BigEndian::read_u64(&buf[28..36]);
         let metadata_offset = BigEndian::read_u64(&buf[36..44]);
         let metadata_length = BigEndian::read_u32(&buf[44..48]);
         let metadata_crc32 = BigEndian::read_u32(&buf[48..52]);
-        let host_image_size = BigEndian::read_u32(&buf[52..56]) as u64;
 
         Ok(Self {
             version,
             flags,
             host_image_size,
-            payload_offset,
+            payload_offset: host_image_size,
             payload_length,
             metadata_offset,
             metadata_length,

@@ -1,13 +1,11 @@
 use crate::crypto::StreamEncryptor;
 use crate::error::{Result, SecretPngError};
 use crate::protocol::{
-    PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PNG_IEND_CHUNK, PNG_SAFE_CHUNK_SIZE,
-    PNG_SECR_TYPE, PROTOCOL_VERSION,
+    PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, PROTOCOL_VERSION,
 };
-use byteorder::{BigEndian, ByteOrder};
 use crc32fast::Hasher as Crc32Hasher;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -83,32 +81,6 @@ pub fn inspect_image_header<P: AsRef<Path>>(path: P) -> Result<(String, Option<u
     Ok((format, dimensions.0, dimensions.1))
 }
 
-/// Find IEND chunk offset in a PNG file (usually at host_size - 12)
-fn find_png_iend_offset(file: &mut File, file_size: u64) -> Option<u64> {
-    if file_size < 12 {
-        return None;
-    }
-    let scan_start = file_size.saturating_sub(1024);
-    let scan_len = (file_size - scan_start) as usize;
-    if file.seek(SeekFrom::Start(scan_start)).is_err() {
-        return None;
-    }
-
-    let mut buf = vec![0u8; scan_len];
-    if file.read_exact(&mut buf).is_err() {
-        return None;
-    }
-
-    // Search backwards for PNG_IEND_CHUNK
-    for i in (0..=scan_len.saturating_sub(12)).rev() {
-        if buf[i..i + 12] == PNG_IEND_CHUNK {
-            return Some(scan_start + i as u64);
-        }
-    }
-
-    None
-}
-
 /// Stream host image and payload video into carrier output file with zero high-RAM allocations
 pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     host_path: P1,
@@ -124,20 +96,8 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
 
     // 1. Inspect host image format & dimensions
     let (host_fmt, host_w, host_h) = inspect_image_header(host_path)?;
-    let mut host_file = File::open(host_path)?;
+    let host_file = File::open(host_path)?;
     let host_size = host_file.metadata()?.len();
-
-    let is_png = host_fmt.to_lowercase().contains("png") || host_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("png"));
-
-    // For PNG: find IEND offset to insert ancillary chunks BEFORE IEND
-    let png_iend_offset = if is_png {
-        find_png_iend_offset(&mut host_file, host_size)
-    } else {
-        None
-    };
-
-    let host_prefix_len = png_iend_offset.unwrap_or(host_size);
-    host_file.seek(SeekFrom::Start(0))?;
 
     let payload_meta = std::fs::metadata(payload_path)?;
     let payload_raw_size = payload_meta.len();
@@ -170,12 +130,12 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     let out_file = File::create(output_path)?;
     let mut out_writer = BufWriter::with_capacity(IO_BUFFER_SIZE, out_file);
 
-    // 3. Stream host image prefix directly
+    // 3. Stream host image 100% untouched byte-for-byte
     let mut buffer = vec![0u8; IO_BUFFER_SIZE];
     let mut host_written = 0u64;
 
-    while host_written < host_prefix_len {
-        let bytes_to_read = std::cmp::min(buffer.len() as u64, host_prefix_len - host_written) as usize;
+    while host_written < host_size {
+        let bytes_to_read = std::cmp::min(buffer.len() as u64, host_size - host_written) as usize;
         let n = host_reader.read(&mut buffer[..bytes_to_read])?;
         if n == 0 {
             break;
@@ -185,7 +145,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         total_processed_bytes += n as u64;
 
         if let Some(ref cb) = progress {
-            if last_progress_time.elapsed().as_millis() >= 60 || host_written >= host_prefix_len {
+            if last_progress_time.elapsed().as_millis() >= 60 || host_written >= host_size {
                 let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
                 let speed = if elapsed_sec > 0.0 {
                     (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
@@ -196,7 +156,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
                 last_progress_bytes = total_processed_bytes;
 
                 cb(ProgressUpdate {
-                    phase: "Writing Carrier Image".to_string(),
+                    phase: "Writing Host Image".to_string(),
                     bytes_processed: total_processed_bytes,
                     total_bytes: total_expected_bytes,
                     speed_bytes_sec: speed,
@@ -206,7 +166,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         }
     }
 
-    // 4. Stream payload with checksum and optional encryption
+    // 4. Stream payload with checksum and optional ChaCha20-Poly1305 encryption
     let is_encrypted = options.password.is_some();
     let mut encryptor = if let Some(ref pass) = options.password {
         Some(StreamEncryptor::new(pass)?)
@@ -218,15 +178,10 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     let mut payload_crc_hasher = Crc32Hasher::new();
     let mut payload_stream_size = 0u64;
 
-    let use_png_chunks = png_iend_offset.is_some();
-
-    // Read payload in 64 KB slices for standard PNG chunk compatibility
-    let chunk_read_size = if use_png_chunks { PNG_SAFE_CHUNK_SIZE } else { IO_BUFFER_SIZE };
     let mut payload_raw_read = 0u64;
-    let mut enc_temp_buf = Vec::with_capacity(PNG_SAFE_CHUNK_SIZE + 64);
 
     while payload_raw_read < payload_raw_size {
-        let bytes_to_read = std::cmp::min(chunk_read_size as u64, payload_raw_size - payload_raw_read) as usize;
+        let bytes_to_read = std::cmp::min(buffer.len() as u64, payload_raw_size - payload_raw_read) as usize;
         let n = payload_reader.read(&mut buffer[..bytes_to_read])?;
         if n == 0 {
             break;
@@ -238,54 +193,12 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         payload_raw_read += n as u64;
         total_processed_bytes += n as u64;
 
-        if use_png_chunks {
-            // Write standard PNG seCr chunk: Length (4B) + Type (4B) + Data + CRC (4B)
-            if let Some(ref mut enc) = encryptor {
-                enc_temp_buf.clear();
-                let enc_len = enc.encrypt_chunk(chunk, &mut enc_temp_buf)?;
-                payload_stream_size += enc_len as u64;
-
-                let mut chunk_header = [0u8; 8];
-                BigEndian::write_u32(&mut chunk_header[0..4], enc_len as u32);
-                chunk_header[4..8].copy_from_slice(PNG_SECR_TYPE);
-                out_writer.write_all(&chunk_header)?;
-
-                let mut chunk_crc = Crc32Hasher::new();
-                chunk_crc.update(PNG_SECR_TYPE);
-                chunk_crc.update(&enc_temp_buf);
-
-                out_writer.write_all(&enc_temp_buf)?;
-
-                let mut crc_buf = [0u8; 4];
-                BigEndian::write_u32(&mut crc_buf, chunk_crc.finalize());
-                out_writer.write_all(&crc_buf)?;
-            } else {
-                payload_stream_size += n as u64;
-
-                let mut chunk_header = [0u8; 8];
-                BigEndian::write_u32(&mut chunk_header[0..4], n as u32);
-                chunk_header[4..8].copy_from_slice(PNG_SECR_TYPE);
-                out_writer.write_all(&chunk_header)?;
-
-                let mut chunk_crc = Crc32Hasher::new();
-                chunk_crc.update(PNG_SECR_TYPE);
-                chunk_crc.update(chunk);
-
-                out_writer.write_all(chunk)?;
-
-                let mut crc_buf = [0u8; 4];
-                BigEndian::write_u32(&mut crc_buf, chunk_crc.finalize());
-                out_writer.write_all(&crc_buf)?;
-            }
+        if let Some(ref mut enc) = encryptor {
+            let written = enc.encrypt_chunk(chunk, &mut out_writer)?;
+            payload_stream_size += written as u64;
         } else {
-            // Direct streaming for JPEG / other formats
-            if let Some(ref mut enc) = encryptor {
-                let written = enc.encrypt_chunk(chunk, &mut out_writer)?;
-                payload_stream_size += written as u64;
-            } else {
-                out_writer.write_all(chunk)?;
-                payload_stream_size += n as u64;
-            }
+            out_writer.write_all(chunk)?;
+            payload_stream_size += n as u64;
         }
 
         if let Some(ref cb) = progress {
@@ -345,57 +258,20 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     meta_crc_hasher.update(&metadata_json);
     let metadata_crc32 = meta_crc_hasher.finalize();
 
-    let metadata_offset = if use_png_chunks {
-        // In PNG mode: exactly before metadata JSON
-        // We write metadata chunk: 8 bytes (len, type) + metadata_json + 4 bytes (crc)
-        // Trailer points to where metadata JSON bytes begin
-        let current_pos = host_written + if use_png_chunks {
-            // Count total bytes written for payload chunks
-            let num_chunks = (payload_raw_size + (chunk_read_size as u64 - 1)) / (chunk_read_size as u64);
-            payload_stream_size + (num_chunks * 12)
-        } else {
-            payload_stream_size
-        };
-        current_pos + 8
-    } else {
-        host_written + payload_stream_size
-    };
+    let metadata_offset = host_written + payload_stream_size;
+    out_writer.write_all(&metadata_json)?;
 
-    if use_png_chunks {
-        let mut meta_chunk_header = [0u8; 8];
-        BigEndian::write_u32(&mut meta_chunk_header[0..4], metadata_len);
-        meta_chunk_header[4..8].copy_from_slice(PNG_SECR_TYPE);
-        out_writer.write_all(&meta_chunk_header)?;
-
-        let mut meta_chunk_crc = Crc32Hasher::new();
-        meta_chunk_crc.update(PNG_SECR_TYPE);
-        meta_chunk_crc.update(&metadata_json);
-
-        out_writer.write_all(&metadata_json)?;
-
-        let mut crc_buf = [0u8; 4];
-        BigEndian::write_u32(&mut crc_buf, meta_chunk_crc.finalize());
-        out_writer.write_all(&crc_buf)?;
-    } else {
-        out_writer.write_all(&metadata_json)?;
-    }
-
-    // 6. Build and write Trailer Index (64 bytes)
+    // 6. Build and write Trailer Index (exact 64 bytes at EOF)
     let mut flags = 0u16;
     if is_encrypted {
         flags |= TrailerIndex::FLAG_ENCRYPTED;
     }
-    if use_png_chunks {
-        flags |= TrailerIndex::FLAG_PNG_CHUNK;
-    }
-
-    let payload_offset = host_written;
 
     let trailer = TrailerIndex {
         version: PROTOCOL_VERSION,
         flags,
         host_image_size: host_size,
-        payload_offset,
+        payload_offset: host_size,
         payload_length: payload_stream_size,
         metadata_offset,
         metadata_length: metadata_len,
@@ -403,30 +279,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     };
 
     let trailer_bytes = trailer.to_bytes();
-
-    if use_png_chunks {
-        // Write trailer as seCr chunk (76 bytes: 4B len + 4B type + 64B data + 4B crc)
-        let mut trailer_chunk_header = [0u8; 8];
-        BigEndian::write_u32(&mut trailer_chunk_header[0..4], 64);
-        trailer_chunk_header[4..8].copy_from_slice(PNG_SECR_TYPE);
-        out_writer.write_all(&trailer_chunk_header)?;
-
-        let mut trailer_chunk_crc = Crc32Hasher::new();
-        trailer_chunk_crc.update(PNG_SECR_TYPE);
-        trailer_chunk_crc.update(&trailer_bytes);
-
-        out_writer.write_all(&trailer_bytes)?;
-
-        let mut crc_buf = [0u8; 4];
-        BigEndian::write_u32(&mut crc_buf, trailer_chunk_crc.finalize());
-        out_writer.write_all(&crc_buf)?;
-
-        // Write concluding IEND chunk (12 bytes)
-        out_writer.write_all(&PNG_IEND_CHUNK)?;
-    } else {
-        out_writer.write_all(&trailer_bytes)?;
-    }
-
+    out_writer.write_all(&trailer_bytes)?;
     out_writer.flush()?;
 
     let total_carrier_size = std::fs::metadata(output_path)?.len();
