@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Language-Rust%20%7C%20Kotlin-orange?style=flat-square" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/Encryption-ChaCha20--Poly1305%20%2B%20Argon2id-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/License-MIT-purple?style=flat-square" />
+  <img src="https://img.shields.io/badge/License-Komorebi%202.0.0-purple?style=flat-square" />
 </p>
 
 ---
@@ -120,4 +120,4 @@ The output APK will be in `android_app/app/build/outputs/apk/debug/app-debug.apk
 ---
 
 ## 📄 License
-This project is open-source under the [MIT License](LICENSE).
+This project is open-source under the [Komorebi License 2.0.0](LICENSE.md).
