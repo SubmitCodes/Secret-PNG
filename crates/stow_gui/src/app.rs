@@ -114,6 +114,7 @@ pub struct StowApp {
     embed_password: String,
     embed_enable_encryption: bool,
     embed_show_password: bool,
+    show_experimental_carriers: bool,
 
     // Extract tab state
     extract_carrier_path: Option<PathBuf>,
@@ -159,6 +160,7 @@ impl Default for StowApp {
             embed_password: String::new(),
             embed_enable_encryption: false,
             embed_show_password: false,
+            show_experimental_carriers: false,
 
             extract_carrier_path: None,
             extract_output_path: None,
@@ -516,16 +518,25 @@ impl StowApp {
                                 .rounding(Rounding::same(6.0));
 
                             if ui.add_enabled(!is_busy, browse_btn).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("All Supported Carriers", &["png", "jpg", "jpeg", "webp", "mp3", "wav", "flac", "mp4", "mkv", "mov", "pdf", "exe"])
-                                    .add_filter("Images (*.png, *.jpg, *.webp)", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
-                                    .add_filter("Audio (*.mp3, *.wav, *.flac)", &["mp3", "wav", "flac", "aac", "ogg", "m4a"])
-                                    .add_filter("Video (*.mp4, *.mkv, *.mov)", &["mp4", "mkv", "mov", "webm", "avi", "wmv"])
-                                    .add_filter("Documents (*.pdf)", &["pdf"])
-                                    .add_filter("Executables (*.exe, *.dll)", &["exe", "dll", "iso", "bin"])
-                                    .add_filter("All Files (*.*)", &["*"])
-                                    .pick_file()
-                                {
+                                let mut dialog = rfd::FileDialog::new();
+                                if self.show_experimental_carriers {
+                                    dialog = dialog
+                                        .add_filter("All Supported & Experimental Carriers", &["png", "jpg", "jpeg", "webp", "gif", "bmp", "mp3", "m4a", "wav", "flac", "aac", "ogg", "mp4", "mkv", "mov", "webm", "avi", "wmv", "pdf", "exe", "dll", "iso", "bin"])
+                                        .add_filter("Images (*.png, *.jpg, *.webp, *.gif, *.bmp)", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                                        .add_filter("Audio (*.mp3, *.m4a, *.flac, *.wav, *.ogg)", &["mp3", "m4a", "wav", "flac", "aac", "ogg"])
+                                        .add_filter("Video (*.mp4, *.mkv, *.mov, *.webm)", &["mp4", "mkv", "mov", "webm", "avi", "wmv"])
+                                        .add_filter("Documents (*.pdf)", &["pdf"])
+                                        .add_filter("Executables & ISOs (*.exe, *.dll, *.iso, *.bin)", &["exe", "dll", "iso", "bin"])
+                                        .add_filter("All Files (*.*)", &["*"]);
+                                } else {
+                                    dialog = dialog
+                                        .add_filter("Recommended Carriers (100% Tested)", &["png", "jpg", "jpeg", "webp", "gif", "bmp", "mp3", "m4a", "mp4", "mkv", "mov", "webm"])
+                                        .add_filter("Images (*.png, *.jpg, *.webp)", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                                        .add_filter("Audio (*.mp3, *.m4a)", &["mp3", "m4a"])
+                                        .add_filter("Video (*.mp4, *.mkv, *.mov)", &["mp4", "mkv", "mov", "webm"]);
+                                }
+
+                                if let Some(path) = dialog.pick_file() {
                                     let (cat, fmt, _, _) = classify_host_carrier(&path);
                                     self.embed_host_category = Some(cat);
                                     self.embed_host_format = Some(fmt);
@@ -717,6 +728,12 @@ impl StowApp {
                         &mut self.embed_enable_encryption,
                         RichText::new("Protect with a Password (ChaCha20-Poly1305 AEAD)").strong(),
                     );
+
+                    ui.add_space(4.0);
+                    ui.checkbox(
+                        &mut self.show_experimental_carriers,
+                        RichText::new("Show Experimental & Advanced Carrier Formats (FLAC, PDF, EXE, ISO)").size(12.5),
+                    ).on_hover_text("When enabled, allows picking FLAC, PDF, and Executables. Recommended formats (Images, MP3, MP4) have 100% verified viewer and seeking support.");
 
                     if self.embed_enable_encryption {
                         ui.add_space(6.0);

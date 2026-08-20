@@ -112,7 +112,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 
     val saveCarrierLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("image/png")
+        contract = ActivityResultContracts.CreateDocument("*/*")
     ) { outUri: Uri? ->
         if (outUri != null && hostImageUri != null && payloadFileUri != null) {
             isProcessing = true
@@ -139,7 +139,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 
     val saveExtractedLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("video/mp4")
+        contract = ActivityResultContracts.CreateDocument("*/*")
     ) { outUri: Uri? ->
         if (outUri != null && carrierUri != null) {
             isProcessing = true
@@ -424,7 +424,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
             // Action Button
             val canEmbed = !isProcessing && hostImageUri != null && payloadFileUri != null && (!enableEncryption || embedPassword.isNotEmpty())
             Button(
-                onClick = { saveCarrierLauncher.launch(hostImageName?.substringBeforeLast('.') + "_carrier.png") },
+                onClick = {
+                        val base = hostImageName?.substringBeforeLast('.') ?: "carrier"
+                        val ext = hostImageName?.substringAfterLast('.', "png") ?: "png"
+                        saveCarrierLauncher.launch("${base}_carrier.${ext}")
+                    },
                 enabled = canEmbed,
                 modifier = Modifier
                     .fillMaxWidth()
