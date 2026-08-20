@@ -221,10 +221,11 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             None
         };
 
-        let mut payload_written = 0u64;
+        let mut payload_bytes_read = 0u64;
+        let mut payload_ciphertext_written = 0u64;
 
-        while payload_written < payload_raw_size {
-            let bytes_to_read = std::cmp::min(buffer.len() as u64, payload_raw_size - payload_written) as usize;
+        while payload_bytes_read < payload_raw_size {
+            let bytes_to_read = std::cmp::min(buffer.len() as u64, payload_raw_size - payload_bytes_read) as usize;
             let n = payload_reader.read(&mut buffer[..bytes_to_read])?;
             if n == 0 {
                 break;
@@ -236,12 +237,13 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
 
             if let Some(ref mut enc) = encryptor {
                 let bytes_enc = enc.encrypt_chunk(chunk, &mut out_writer)?;
-                payload_written += bytes_enc as u64;
+                payload_ciphertext_written += bytes_enc as u64;
             } else {
                 out_writer.write_all(chunk)?;
-                payload_written += n as u64;
+                payload_ciphertext_written += n as u64;
             }
 
+            payload_bytes_read += n as u64;
             total_processed_bytes += n as u64;
 
             if let Some(ref cb) = progress {
@@ -287,7 +289,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             file_extension,
             mime_type,
             original_file_size: payload_raw_size,
-            payload_size: payload_written,
+            payload_size: payload_ciphertext_written,
             blake3_hex: blake3_hex.clone(),
             crc32,
             timestamp_epoch_sec: timestamp,
@@ -307,7 +309,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         meta_crc_hasher.update(&meta_json_bytes);
         let meta_crc32 = meta_crc_hasher.finalize();
 
-        let metadata_offset = host_written + payload_written;
+        let metadata_offset = host_written + payload_ciphertext_written;
         let metadata_length = meta_json_bytes.len() as u32;
 
         out_writer.write_all(&meta_json_bytes)?;
@@ -318,7 +320,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             flags: if is_encrypted { TrailerIndex::FLAG_ENCRYPTED } else { 0 },
             host_image_size: host_written,
             payload_offset: host_written,
-            payload_length: payload_written,
+            payload_length: payload_ciphertext_written,
             metadata_offset,
             metadata_length,
             metadata_crc32: meta_crc32,
@@ -328,7 +330,7 @@ pub fn embed_files<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         out_writer.write_all(&trailer_bytes)?;
         out_writer.flush()?;
 
-        Ok((host_written, payload_written, blake3_hex, crc32, is_encrypted))
+        Ok((host_written, payload_ciphertext_written, blake3_hex, crc32, is_encrypted))
     })();
 
     match embed_result {
