@@ -54,6 +54,7 @@ data class Trailer(
 ) {
     companion object {
         const val TRAILER_SIZE = 64
+        const val MAX_METADATA_SIZE = 10 * 1024 * 1024
         const val FLAG_ENCRYPTED = 0x0001
 
         val MAGIC = "SECRETPNG_V1\u0000\u0000\u0000\u0000".toByteArray(Charsets.US_ASCII)
@@ -168,6 +169,9 @@ object StowEngine {
                 val trailerBytes = ByteArray(Trailer.TRAILER_SIZE)
                 raf.readFully(trailerBytes)
                 val trailer = Trailer.fromBytes(trailerBytes)
+                if (trailer.metadataLength > Trailer.MAX_METADATA_SIZE) {
+                    throw IllegalStateException("Metadata length (${trailer.metadataLength} bytes) exceeds 10 MB sanity ceiling")
+                }
 
                 raf.seek(trailer.metadataOffset)
                 val metaBytes = ByteArray(trailer.metadataLength)
@@ -372,6 +376,9 @@ object StowEngine {
                 val trailerBytes = ByteArray(Trailer.TRAILER_SIZE)
                 raf.readFully(trailerBytes)
                 val trailer = Trailer.fromBytes(trailerBytes)
+                if (trailer.metadataLength > Trailer.MAX_METADATA_SIZE) {
+                    throw IllegalStateException("Metadata length (${trailer.metadataLength} bytes) exceeds 10 MB sanity ceiling")
+                }
 
                 raf.seek(trailer.metadataOffset)
                 val metaBytes = ByteArray(trailer.metadataLength)

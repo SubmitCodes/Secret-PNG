@@ -14,7 +14,7 @@ pub use extractor::{
     extract_payload, has_carrier_payload, inspect_carrier, ExtractionReport,
 };
 pub use protocol::{
-    EncryptionMetadata, HostCategory, PayloadMetadata, TrailerIndex, DEFAULT_CHUNK_SIZE,
+    EncryptionMetadata, HostCategory, PayloadMetadata, TrailerIndex, DEFAULT_CHUNK_SIZE, MAX_METADATA_SIZE,
     PROTOCOL_VERSION, TRAILER_MAGIC, TRAILER_MAGIC_LEGACY, TRAILER_MAGIC_STOW, TRAILER_SIZE,
 };
 pub use sanitizer::{strip_payload_in_place, strip_payload_to_file, SanitizeReport};

@@ -14,6 +14,9 @@ pub const TRAILER_SIZE: usize = 64;
 pub const IO_BUFFER_SIZE: usize = 1024 * 1024;
 pub const DEFAULT_CHUNK_SIZE: usize = IO_BUFFER_SIZE;
 
+/// Maximum sanity limit for JSON metadata block (10 MB)
+pub const MAX_METADATA_SIZE: u32 = 10 * 1024 * 1024;
+
 /// Classification of host carrier file
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HostCategory {

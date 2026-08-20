@@ -1,14 +1,16 @@
 use crate::crypto::StreamDecryptor;
-use crate::embedder::{ProgressCallback, ProgressUpdate};
 use crate::error::{Result, StowError};
 use crate::protocol::{
-    PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, TRAILER_SIZE,
+    PayloadMetadata, TrailerIndex, IO_BUFFER_SIZE, MAX_METADATA_SIZE, TRAILER_SIZE,
 };
 use crc32fast::Hasher as Crc32Hasher;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+pub type ProgressCallback = Box<dyn Fn(crate::embedder::ProgressUpdate) + Send + Sync>;
+pub use crate::embedder::ProgressUpdate;
 
 #[derive(Debug, Clone)]
 pub struct ExtractionReport {
@@ -21,21 +23,33 @@ pub struct ExtractionReport {
     pub elapsed_millis: u128,
 }
 
-/// Instant O(1) metadata inspection reading the fixed 64-byte trailer at EOF
+/// Inspect carrier file and read trailer and metadata without extracting
 pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex, PayloadMetadata)> {
-    let carrier_path = carrier_path.as_ref();
     let mut file = File::open(carrier_path)?;
-    let total_len = file.metadata()?.len();
+    let file_len = file.metadata()?.len();
 
-    if total_len < TRAILER_SIZE as u64 {
+    if file_len < TRAILER_SIZE as u64 {
         return Err(StowError::NoCarrierDataFound);
     }
 
-    let mut trailer_buf = [0u8; TRAILER_SIZE];
+    // 1. Read fixed 64-byte trailer from exact EOF - 64
     file.seek(SeekFrom::End(-(TRAILER_SIZE as i64)))?;
+    let mut trailer_buf = [0u8; TRAILER_SIZE];
     file.read_exact(&mut trailer_buf)?;
 
     let trailer = TrailerIndex::from_bytes(&trailer_buf)?;
+
+    // Validate metadata bounds against file size
+    if trailer.metadata_length > MAX_METADATA_SIZE {
+        return Err(StowError::CorruptedMetadata(format!(
+            "Metadata length ({} bytes) exceeds safety ceiling of 10 MB",
+            trailer.metadata_length
+        )));
+    }
+
+    if trailer.metadata_offset + (trailer.metadata_length as u64) > file_len.saturating_sub(TRAILER_SIZE as u64) {
+        return Err(StowError::CorruptedTrailer);
+    }
 
     // 2. Read metadata block
     file.seek(SeekFrom::Start(trailer.metadata_offset))?;
@@ -57,12 +71,12 @@ pub fn inspect_carrier<P: AsRef<Path>>(carrier_path: P) -> Result<(TrailerIndex,
     Ok((trailer, metadata))
 }
 
-/// Check if a file contains a valid Secret PNG carrier payload
+/// Check if a file contains a valid Stow carrier payload
 pub fn has_carrier_payload<P: AsRef<Path>>(carrier_path: P) -> bool {
     inspect_carrier(carrier_path).is_ok()
 }
 
-/// Stream extraction of embedded video with real-time verification and zero-RAM overhead
+/// Stream extraction of concealed payload with real-time verification and zero-RAM overhead
 pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
     carrier_path: P1,
     output_path_override: Option<P2>,
@@ -82,7 +96,18 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     // 3. Determine output destination path
     let out_path: PathBuf = match output_path_override {
-        Some(ref p) => p.as_ref().to_path_buf(),
+        Some(ref p) => {
+            let p_buf = p.as_ref().to_path_buf();
+            // Guard against self-overwrite
+            if let (Ok(c_can), Ok(o_can)) = (carrier_path.canonicalize(), p_buf.canonicalize()) {
+                if c_can == o_can {
+                    return Err(StowError::InvalidParameter(
+                        "Destination output path cannot be the same file as the carrier".into(),
+                    ));
+                }
+            }
+            p_buf
+        }
         None => {
             let parent = carrier_path.parent().unwrap_or_else(|| Path::new("."));
             let mut candidate = parent.join(&metadata.original_filename);
@@ -106,17 +131,25 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
     let mut carrier_reader = BufReader::with_capacity(IO_BUFFER_SIZE, carrier_file);
     carrier_reader.seek(SeekFrom::Start(trailer.payload_offset))?;
 
-    let out_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&out_path)?;
-    let mut out_writer = BufWriter::with_capacity(IO_BUFFER_SIZE, out_file);
+    // Use atomic temporary file for safe extraction
+    let out_parent = out_path.parent().unwrap_or_else(|| Path::new("."));
+    let temp_extract_path = out_parent.join(format!(
+        ".stow_extract_tmp_{}_{}.tmp",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
 
     let mut blake3_hasher = blake3::Hasher::new();
     let mut crc_hasher = Crc32Hasher::new();
 
     let result = (|| -> Result<()> {
+        let temp_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_extract_path)?;
+        let mut out_writer = BufWriter::with_capacity(IO_BUFFER_SIZE, temp_file);
+
         if metadata.is_encrypted {
             let enc_meta = metadata.encryption.as_ref().ok_or(StowError::CorruptedMetadata(
                 "Missing encryption parameters".into(),
@@ -132,14 +165,15 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
                 total_processed_bytes += plaintext.len() as u64;
 
                 if let Some(ref cb) = progress {
-                    if last_progress_time.elapsed().as_millis() >= 60 || total_processed_bytes >= total_expected_bytes {
-                        let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
-                        let speed = if elapsed_sec > 0.0 {
-                            (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(last_progress_time).as_secs_f64();
+                    if elapsed >= 0.05 || total_processed_bytes >= total_expected_bytes {
+                        let speed = if elapsed > 0.0 {
+                            (total_processed_bytes - last_progress_bytes) as f64 / elapsed
                         } else {
                             0.0
                         };
-                        last_progress_time = Instant::now();
+                        last_progress_time = now;
                         last_progress_bytes = total_processed_bytes;
 
                         cb(ProgressUpdate {
@@ -171,14 +205,15 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
                 total_processed_bytes += n as u64;
 
                 if let Some(ref cb) = progress {
-                    if last_progress_time.elapsed().as_millis() >= 60 || total_processed_bytes >= total_expected_bytes {
-                        let elapsed_sec = last_progress_time.elapsed().as_secs_f64();
-                        let speed = if elapsed_sec > 0.0 {
-                            (total_processed_bytes - last_progress_bytes) as f64 / elapsed_sec
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(last_progress_time).as_secs_f64();
+                    if elapsed >= 0.05 || total_processed_bytes >= total_expected_bytes {
+                        let speed = if elapsed > 0.0 {
+                            (total_processed_bytes - last_progress_bytes) as f64 / elapsed
                         } else {
                             0.0
                         };
-                        last_progress_time = Instant::now();
+                        last_progress_time = now;
                         last_progress_bytes = total_processed_bytes;
 
                         cb(ProgressUpdate {
@@ -198,7 +233,7 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
     })();
 
     if let Err(e) = result {
-        let _ = std::fs::remove_file(&out_path);
+        let _ = std::fs::remove_file(&temp_extract_path);
         return Err(e);
     }
 
@@ -207,12 +242,18 @@ pub fn extract_payload<P1: AsRef<Path>, P2: AsRef<Path>>(
     let calculated_crc = crc_hasher.finalize();
 
     if calculated_blake3 != metadata.blake3_hex || calculated_crc != metadata.crc32 {
-        let _ = std::fs::remove_file(&out_path);
+        let _ = std::fs::remove_file(&temp_extract_path);
         return Err(StowError::ChecksumMismatch {
             expected: metadata.blake3_hex,
             calculated: calculated_blake3,
         });
     }
+
+    // Atomic move to final destination
+    if out_path.exists() {
+        let _ = std::fs::remove_file(&out_path);
+    }
+    std::fs::rename(&temp_extract_path, &out_path)?;
 
     if let Some(ref cb) = progress {
         cb(ProgressUpdate {

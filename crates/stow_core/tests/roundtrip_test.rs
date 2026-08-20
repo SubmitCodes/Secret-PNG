@@ -194,3 +194,38 @@ fn test_sanitizer_multi_carrier_stripping() {
     let cleaned_bytes = std::fs::read(&cleaned).unwrap();
     assert_eq!(cleaned_bytes, original_host_bytes);
 }
+
+#[test]
+fn test_extractor_self_overwrite_guard() {
+    let dir = tempdir().unwrap();
+    let host_audio = dir.path().join("song.mp3");
+    let payload = dir.path().join("secret.txt");
+    let carrier = dir.path().join("song_carrier.mp3");
+
+    create_dummy_audio(&host_audio, 64 * 1024);
+    create_dummy_payload(&payload, 16 * 1024);
+
+    embed_files(&host_audio, &payload, &carrier, EmbedOptions::default(), None).unwrap();
+    let carrier_original_size = std::fs::metadata(&carrier).unwrap().len();
+
+    // Attempting to extract to carrier itself must fail with InvalidParameter
+    let res = extract_payload(&carrier, Some(&carrier), None, None);
+    assert!(res.is_err(), "Extraction to self should return an error");
+
+    // Verify carrier is untouched and not truncated
+    let carrier_size_after = std::fs::metadata(&carrier).unwrap().len();
+    assert_eq!(carrier_original_size, carrier_size_after, "Carrier must not be truncated");
+}
+
+#[test]
+fn test_inspect_carrier_bounds_guard() {
+    let dir = tempdir().unwrap();
+    let bogus_file = dir.path().join("bogus.png");
+
+    // Write a dummy file too small for a trailer
+    let mut f = File::create(&bogus_file).unwrap();
+    f.write_all(b"not a valid carrier").unwrap();
+
+    let res = inspect_carrier(&bogus_file);
+    assert!(res.is_err());
+}
